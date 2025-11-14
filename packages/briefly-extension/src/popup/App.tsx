@@ -26,12 +26,29 @@ function App() {
   const [isExpanded, setIsExpanded] = useState(false);
 
   useEffect(() => {
-    // Load settings from chrome.storage
-    chrome.storage.local.get(['youtubeApiKey', 'openaiApiKey'], (result) => {
+    // Load settings and summary from chrome.storage
+    chrome.storage.local.get(['youtubeApiKey', 'openaiApiKey', 'summary'], (result) => {
       if (result.youtubeApiKey || result.openaiApiKey) {
         setSettings({
           youtubeApiKey: result.youtubeApiKey || '',
           openaiApiKey: result.openaiApiKey || '',
+        });
+      }
+
+      // Load stored summary and check if it matches current video
+      if (result.summary) {
+        chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
+          const videoId = tab.url?.includes('youtube.com/watch')
+            ? new URL(tab.url).searchParams.get('v')
+            : null;
+
+          // Only load summary if it matches the current video
+          if (videoId && result.summary.videoId === videoId) {
+            setSummary(result.summary);
+          } else {
+            // Clear stale summary from storage
+            chrome.storage.local.remove('summary');
+          }
         });
       }
     });
@@ -104,12 +121,17 @@ function App() {
       // Generate summary using OpenAI
       const summaryContent = await generateSummary(transcript, settings.openaiApiKey);
 
-      setSummary({
+      const newSummary = {
         videoId,
         videoTitle: tab.title || 'YouTube Video',
         content: summaryContent,
         timestamp: Date.now(),
-      });
+      };
+
+      setSummary(newSummary);
+
+      // Persist summary to chrome.storage
+      chrome.storage.local.set({ summary: newSummary });
 
     } catch (err) {
       console.error('Error generating summary:', err);
@@ -238,7 +260,10 @@ function App() {
           <SummaryView
             summary={summary}
             onTimestampClick={handleTimestampClick}
-            onNewSummary={() => setSummary(null)}
+            onNewSummary={() => {
+              setSummary(null);
+              chrome.storage.local.remove('summary');
+            }}
           />
         )}
       </div>
