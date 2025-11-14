@@ -22,6 +22,7 @@ function App() {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isYouTubeVideo, setIsYouTubeVideo] = useState<boolean | null>(null);
   const [isExpanded, setIsExpanded] = useState(false);
 
   useEffect(() => {
@@ -33,6 +34,14 @@ function App() {
           openaiApiKey: result.openaiApiKey || '',
         });
       }
+    });
+  }, []);
+
+  useEffect(() => {
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      const [tab] = tabs;
+      const isVideo = !!tab?.url && tab.url.includes('youtube.com/watch');
+      setIsYouTubeVideo(isVideo);
     });
   }, []);
 
@@ -166,7 +175,7 @@ function App() {
           </div>
         )}
 
-        {!summary && (
+        {!summary && isYouTubeVideo && (
           <button
             onClick={handleSummarize}
             disabled={loading}
@@ -174,6 +183,21 @@ function App() {
           >
             {loading ? 'Generating Summary...' : 'Summarize This Video'}
           </button>
+        )}
+
+        {!summary && isYouTubeVideo === false && (
+          <div className="w-full p-6 bg-white border border-dashed border-gray-300 rounded-lg flex flex-col items-center text-center gap-3">
+            <div className="w-14 h-14 rounded-2xl bg-indigo-600 text-white flex items-center justify-center text-2xl font-bold shadow-sm">
+              B
+            </div>
+            <div className="text-sm text-gray-700 max-w-xs">
+              <p className="font-medium text-gray-900">Open a YouTube video to get started</p>
+              <p className="mt-1 text-gray-600">
+                Briefly can summarize videos that are open in your current tab. Navigate to any YouTube
+                video, then reopen this popup to generate a summary.
+              </p>
+            </div>
+          </div>
         )}
 
         {summary && (
