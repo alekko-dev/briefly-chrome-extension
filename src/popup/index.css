@@ -1,5 +1,10 @@
 @import "tailwindcss";
 
+html,
+body {
+  height: 100%;
+}
+
 body {
   margin: 0;
   padding: 0;
@@ -10,6 +15,15 @@ body {
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  background-color: #f9fafb;
+  color: #111827;
+}
+
+@media (prefers-color-scheme: dark) {
+  body {
+    background-color: #020617;
+    color: #e5e7eb;
+  }
 }
 
 #root {

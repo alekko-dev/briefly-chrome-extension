@@ -135,18 +135,18 @@ function App() {
   };
 
   return (
-    <div className="w-full min-h-[400px] bg-gray-50">
+    <div className="w-full min-h-[400px] h-full bg-gray-50 text-gray-900 dark:bg-slate-900 dark:text-gray-50">
       {/* Header */}
-      <div className="bg-white border-b border-gray-200 px-6 py-4">
+      <div className="bg-white border-b border-gray-200 px-6 py-4 dark:bg-slate-900 dark:border-slate-800">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-indigo-600">Briefly</h1>
-            <p className="text-sm text-gray-600">AI-powered video summarizer</p>
+            <h1 className="text-2xl font-bold text-indigo-600 dark:text-indigo-400">Briefly</h1>
+            <p className="text-sm text-gray-600 dark:text-gray-400">AI-powered video summarizer</p>
           </div>
           <div className="flex items-center gap-3">
             <button
               onClick={() => setShowSettings(true)}
-              className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
+              className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors dark:text-gray-300 dark:hover:text-white dark:hover:bg-slate-800"
               title="Settings"
             >
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -156,7 +156,7 @@ function App() {
             </button>
             <button
               onClick={() => setIsExpanded((prev) => !prev)}
-              className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
+              className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors dark:text-gray-300 dark:hover:text-white dark:hover:bg-slate-800"
               title={isExpanded ? 'Reduce size' : 'Expand size'}
             >
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -170,8 +170,8 @@ function App() {
       {/* Main Content */}
       <div className="p-6">
         {error && (
-          <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
-            <p className="text-sm text-red-800">{error}</p>
+          <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg dark:bg-red-900/40 dark:border-red-800">
+            <p className="text-sm text-red-800 dark:text-red-200">{error}</p>
           </div>
         )}
 
@@ -179,20 +179,20 @@ function App() {
           <button
             onClick={handleSummarize}
             disabled={loading}
-            className="w-full py-4 px-6 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white font-semibold rounded-lg shadow-md hover:shadow-lg transition-all duration-200 disabled:cursor-not-allowed"
+            className="w-full py-4 px-6 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white font-semibold rounded-lg shadow-md hover:shadow-lg transition-all duration-200 disabled:cursor-not-allowed dark:bg-indigo-500 dark:hover:bg-indigo-400"
           >
             {loading ? 'Generating Summary...' : 'Summarize This Video'}
           </button>
         )}
 
         {!summary && isYouTubeVideo === false && (
-          <div className="w-full p-6 bg-white border border-dashed border-gray-300 rounded-lg flex flex-col items-center text-center gap-3">
-            <div className="w-14 h-14 rounded-2xl bg-indigo-600 text-white flex items-center justify-center text-2xl font-bold shadow-sm">
+          <div className="w-full p-6 bg-white border border-dashed border-gray-300 rounded-lg flex flex-col items-center text-center gap-3 dark:bg-slate-900 dark:border-slate-700">
+            <div className="w-14 h-14 rounded-2xl bg-indigo-600 text-white flex items-center justify-center text-2xl font-bold shadow-sm dark:bg-indigo-500">
               B
             </div>
-            <div className="text-sm text-gray-700 max-w-xs">
-              <p className="font-medium text-gray-900">Open a YouTube video to get started</p>
-              <p className="mt-1 text-gray-600">
+            <div className="text-sm text-gray-700 max-w-xs dark:text-gray-200">
+              <p className="font-medium text-gray-900 dark:text-gray-100">Open a YouTube video to get started</p>
+              <p className="mt-1 text-gray-600 dark:text-gray-300">
                 Briefly can summarize videos that are open in your current tab. Navigate to any YouTube
                 video, then reopen this popup to generate a summary.
               </p>
