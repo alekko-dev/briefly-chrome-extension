@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 
 interface Summary {
@@ -15,6 +15,8 @@ interface SummaryViewProps {
 }
 
 function SummaryView({ summary, onTimestampClick, onNewSummary }: SummaryViewProps) {
+  const [copied, setCopied] = useState(false);
+
   // Parse timestamp links from markdown content (e.g., [12:34] or [1:23:45])
   const handleMarkdownClick = (e: React.MouseEvent) => {
     const target = e.target as HTMLElement;
@@ -31,6 +33,35 @@ function SummaryView({ summary, onTimestampClick, onNewSummary }: SummaryViewPro
         const totalSeconds = hours * 3600 + minutes * 60 + seconds;
         onTimestampClick(totalSeconds);
       }
+    }
+  };
+
+  const handleCopyMarkdown = async () => {
+    try {
+      // Convert timestamp links to YouTube URLs with escaped brackets
+      const contentWithLinks = summary.content.replace(
+        /\[(\d{1,2}):(\d{2})(?::(\d{2}))?\]\(#\)/g,
+        (match, hours_or_minutes, minutes_or_seconds, seconds) => {
+          // Parse timestamp to seconds
+          const hours = seconds ? parseInt(hours_or_minutes) : 0;
+          const minutes = seconds ? parseInt(minutes_or_seconds) : parseInt(hours_or_minutes);
+          const secs = seconds ? parseInt(seconds) : parseInt(minutes_or_seconds);
+          const totalSeconds = hours * 3600 + minutes * 60 + secs;
+
+          // Create YouTube URL with timestamp
+          const youtubeUrl = `https://youtube.com/watch?v=${summary.videoId}&t=${totalSeconds}s`;
+
+          // Extract original timestamp text and escape brackets for markdown
+          const timestamp = match.match(/\[([^\]]+)\]/)?.[1] || '';
+          return `[\\[${timestamp}\\]](${youtubeUrl})`;
+        }
+      );
+
+      await navigator.clipboard.writeText(contentWithLinks);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      console.error('Failed to copy to clipboard:', err);
     }
   };
 
@@ -64,13 +95,35 @@ function SummaryView({ summary, onTimestampClick, onNewSummary }: SummaryViewPro
         </ReactMarkdown>
       </div>
 
-      {/* New Summary Button */}
-      <button
-        onClick={onNewSummary}
-        className="w-full py-3 px-4 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium rounded-lg transition-colors dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-gray-100"
-      >
-        Generate New Summary
-      </button>
+      {/* Action Buttons */}
+      <div className="flex gap-3">
+        <button
+          onClick={handleCopyMarkdown}
+          className="flex-1 py-3 px-4 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-lg transition-colors flex items-center justify-center gap-2 dark:bg-indigo-500 dark:hover:bg-indigo-600"
+        >
+          {copied ? (
+            <>
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              </svg>
+              Copied!
+            </>
+          ) : (
+            <>
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+              </svg>
+              Copy as Markdown
+            </>
+          )}
+        </button>
+        <button
+          onClick={onNewSummary}
+          className="flex-1 py-3 px-4 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium rounded-lg transition-colors dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-gray-100"
+        >
+          New Summary
+        </button>
+      </div>
     </div>
   );
 }
