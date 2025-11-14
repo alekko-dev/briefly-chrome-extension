@@ -37,16 +37,16 @@ function SummaryView({ summary, onTimestampClick, onNewSummary }: SummaryViewPro
   return (
     <div className="space-y-4">
       {/* Video Info */}
-      <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200">
-        <h3 className="font-semibold text-gray-900 mb-1">{summary.videoTitle}</h3>
-        <p className="text-xs text-gray-500">
+      <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200 dark:bg-slate-900 dark:border-slate-700">
+        <h3 className="font-semibold text-gray-900 mb-1 dark:text-gray-100">{summary.videoTitle}</h3>
+        <p className="text-xs text-gray-500 dark:text-gray-400">
           Generated {new Date(summary.timestamp).toLocaleString()}
         </p>
       </div>
 
       {/* Summary Content */}
       <div
-        className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 max-h-[500px] overflow-y-auto prose prose-sm max-w-none"
+        className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 max-h-[500px] overflow-y-auto prose prose-sm max-w-none dark:bg-slate-900 dark:border-slate-700 dark:prose-invert"
         onClick={handleMarkdownClick}
       >
         <ReactMarkdown
@@ -55,17 +55,17 @@ function SummaryView({ summary, onTimestampClick, onNewSummary }: SummaryViewPro
             a: ({ node, ...props }) => (
               <a
                 {...props}
-                className="text-indigo-600 hover:text-indigo-700 cursor-pointer font-medium"
+                className="text-indigo-600 hover:text-indigo-700 cursor-pointer font-medium dark:text-indigo-400 dark:hover:text-indigo-300"
               />
             ),
             // Add styling for other markdown elements
-            h1: ({ node, ...props }) => <h1 {...props} className="text-xl font-bold mb-3 text-gray-900" />,
-            h2: ({ node, ...props }) => <h2 {...props} className="text-lg font-bold mb-2 text-gray-900" />,
-            h3: ({ node, ...props }) => <h3 {...props} className="text-base font-semibold mb-2 text-gray-900" />,
-            p: ({ node, ...props }) => <p {...props} className="mb-3 text-gray-700 leading-relaxed" />,
+            h1: ({ node, ...props }) => <h1 {...props} className="text-xl font-bold mb-3 text-gray-900 dark:text-gray-50" />,
+            h2: ({ node, ...props }) => <h2 {...props} className="text-lg font-bold mb-2 text-gray-900 dark:text-gray-50" />,
+            h3: ({ node, ...props }) => <h3 {...props} className="text-base font-semibold mb-2 text-gray-900 dark:text-gray-50" />,
+            p: ({ node, ...props }) => <p {...props} className="mb-3 text-gray-700 leading-relaxed dark:text-gray-200" />,
             ul: ({ node, ...props }) => <ul {...props} className="list-disc pl-5 mb-3 space-y-1" />,
             ol: ({ node, ...props }) => <ol {...props} className="list-decimal pl-5 mb-3 space-y-1" />,
-            li: ({ node, ...props }) => <li {...props} className="text-gray-700" />,
+            li: ({ node, ...props }) => <li {...props} className="text-gray-700 dark:text-gray-200" />,
           }}
         >
           {summary.content}
@@ -75,7 +75,7 @@ function SummaryView({ summary, onTimestampClick, onNewSummary }: SummaryViewPro
       {/* New Summary Button */}
       <button
         onClick={onNewSummary}
-        className="w-full py-3 px-4 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium rounded-lg transition-colors"
+        className="w-full py-3 px-4 bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium rounded-lg transition-colors dark:bg-slate-800 dark:hover:bg-slate-700 dark:text-gray-100"
       >
         Generate New Summary
       </button>
