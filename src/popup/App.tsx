@@ -22,6 +22,7 @@ function App() {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isExpanded, setIsExpanded] = useState(false);
 
   useEffect(() => {
     // Load settings from chrome.storage
@@ -34,6 +35,20 @@ function App() {
       }
     });
   }, []);
+
+  useEffect(() => {
+    const body = document.body;
+    const html = document.documentElement;
+
+    const width = isExpanded ? '600px' : '400px';
+    const height = isExpanded ? '600px' : '500px';
+
+    body.style.width = width;
+    body.style.minHeight = height;
+
+    html.style.width = width;
+    html.style.height = height;
+  }, [isExpanded]);
 
   const handleSaveSettings = (newSettings: Settings) => {
     setSettings(newSettings);
@@ -131,8 +146,9 @@ function App() {
               </svg>
             </button>
             <button
+              onClick={() => setIsExpanded((prev) => !prev)}
               className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-lg transition-colors"
-              title="New window"
+              title={isExpanded ? 'Reduce size' : 'Expand size'}
             >
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
