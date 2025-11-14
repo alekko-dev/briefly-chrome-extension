@@ -60,7 +60,14 @@ ${transcriptText}`;
       throw new Error('No summary generated from OpenAI');
     }
 
-    return summary;
+    // Post-process: Convert timestamp patterns [MM:SS] and [H:MM:SS] into markdown links
+    // This makes them clickable in ReactMarkdown
+    const processedSummary = summary.replace(
+      /\[(\d{1,2}):(\d{2})(?::(\d{2}))?\]/g,
+      '[$&](#)'
+    );
+
+    return processedSummary;
   } catch (error) {
     console.error('Error generating summary:', error);
     throw error;
