@@ -185,7 +185,37 @@ function App() {
             disabled={loading}
             className="w-full py-4 px-6 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white font-semibold rounded-lg shadow-md hover:shadow-lg transition-all duration-200 disabled:cursor-not-allowed dark:bg-indigo-500 dark:hover:bg-indigo-400"
           >
-            {loading ? 'Generating Summary...' : 'Summarize This Video'}
+            {loading ? (
+              <span className="flex items-center justify-center gap-2">
+                <svg
+                  className="w-4 h-4 animate-spin"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                >
+                  <circle
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                    className="opacity-20"
+                  />
+                  <circle
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                    strokeLinecap="round"
+                    strokeDasharray="80"
+                    strokeDashoffset="60"
+                  />
+                </svg>
+                <span>Generating Summary...</span>
+              </span>
+            ) : (
+              'Summarize This Video'
+            )}
           </button>
         )}
 
