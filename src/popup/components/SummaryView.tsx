@@ -36,17 +36,9 @@ function SummaryView({ summary, onTimestampClick, onNewSummary }: SummaryViewPro
 
   return (
     <div className="space-y-4">
-      {/* Video Info */}
-      <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-200 dark:bg-slate-900 dark:border-slate-700">
-        <h3 className="font-semibold text-gray-900 mb-1 dark:text-gray-100">{summary.videoTitle}</h3>
-        <p className="text-xs text-gray-500 dark:text-gray-400">
-          Generated {new Date(summary.timestamp).toLocaleString()}
-        </p>
-      </div>
-
       {/* Summary Content */}
       <div
-        className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 max-h-[500px] overflow-y-auto prose prose-sm max-w-none dark:bg-slate-900 dark:border-slate-700 dark:prose-invert"
+        className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 prose prose-sm max-w-none dark:bg-slate-900 dark:border-slate-700 dark:prose-invert"
         onClick={handleMarkdownClick}
       >
         <ReactMarkdown
