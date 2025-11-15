@@ -175,7 +175,7 @@ function App() {
   };
 
   return (
-    <div className="w-full min-h-[400px] h-full bg-gray-50 text-gray-900 dark:bg-slate-900 dark:text-gray-50">
+    <div className="w-full min-h-[400px] h-full text-gray-900 dark:text-gray-50">
       {/* Header */}
       <div className="bg-white border-b border-gray-200 px-6 py-4 dark:bg-slate-900 dark:border-slate-800">
         <div className="flex items-center justify-between">
