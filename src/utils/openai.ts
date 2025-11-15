@@ -3,9 +3,40 @@ import { TranscriptEntry, formatTimestamp } from './youtube';
 /**
  * Generates a summary of the video transcript using OpenAI's GPT API
  */
+interface GenerateSummaryOptions {
+  comfortableLanguages?: string[];
+}
+
+/**
+ * Turns the user-configured comfortable languages into a short instruction block
+ * that is appended to the system prompt. The block explains the fallback
+ * translation behavior, making it clear to reviewers (and ourselves) why the
+ * additional text is there.
+ */
+function buildLanguageInstruction(languages?: string[]): string {
+  if (!languages) {
+    return '';
+  }
+
+  const normalizedLanguages = languages
+    .map((lang) => lang.trim())
+    .filter((lang) => lang.length > 0);
+
+  if (normalizedLanguages.length === 0) {
+    return '';
+  }
+
+  const fallbackLanguage = normalizedLanguages[0];
+
+  return `LANGUAGE PREFERENCES:\n- Detect the language of the transcript before writing.\n- If the transcript language is in this set: ${normalizedLanguages.join(
+    ', '
+  )}, keep the summary in that same language.\n- If the transcript language is not in that set, translate the entire summary to ${fallbackLanguage}.\n- Maintain consistent language across headings, bullets, and timestamps.`;
+}
+
 export async function generateSummary(
   transcript: TranscriptEntry[],
-  apiKey: string
+  apiKey: string,
+  options?: GenerateSummaryOptions
 ): Promise<string> {
   try {
     // Format transcript for better context
@@ -13,7 +44,9 @@ export async function generateSummary(
       .map((entry) => `[${formatTimestamp(entry.start)}] ${entry.text}`)
       .join('\n');
 
-    const systemPrompt = `You are a helpful assistant that creates detailed, well-structured summaries of YouTube video transcripts.
+    const languageInstruction = buildLanguageInstruction(options?.comfortableLanguages);
+
+    const basePrompt = `You are a helpful assistant that creates detailed, well-structured summaries of YouTube video transcripts.
 
 Your summaries should:
 1. Start with a brief overview (2-3 sentences)
@@ -41,6 +74,10 @@ INCORRECT examples:
 ✗ Timestamp: 12:34
 ✗ [12:34 - 15:20] Topic discussed
 ✗ At 12:34 the speaker mentions...`;
+
+    const systemPrompt = [basePrompt, languageInstruction]
+      .filter(Boolean)
+      .join('\n\n');
 
     const userPrompt = `Please create a comprehensive summary of this YouTube video transcript. Include important timestamps for key moments:
 
