@@ -100,6 +100,20 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       return new Promise((resolve, reject) => {
         console.log('[Content] Looking for transcript button...');
 
+        // If transcript is already visible, read it without changing UI state
+        const transcriptAlreadyVisible = document.querySelector('ytd-transcript-segment-renderer') !== null;
+        let openedTranscript = false;
+        let openerElement: HTMLElement | null = null;
+        let openerIsMenuItem = false;
+
+        if (transcriptAlreadyVisible) {
+          console.log('[Content] Transcript already visible, extracting without toggling panel');
+
+          // Give the DOM a moment in case YouTube is still rendering items
+          setTimeout(() => extractTranscriptSegments(resolve, reject, false, false, null), 0);
+          return;
+        }
+
         // Find the "Show transcript" button
         const transcriptButton = document.querySelector('button[aria-label*="transcript" i], button[aria-label*="Show transcript" i]');
 
@@ -118,8 +132,15 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
                 console.log('[Content] Found transcript in menu, clicking...');
                 (transcriptMenuItem as HTMLElement).click();
 
+                openedTranscript = true;
+                openerElement = transcriptMenuItem as HTMLElement;
+                openerIsMenuItem = true;
+
                 // Wait for transcript panel to load
-                setTimeout(() => extractTranscriptSegments(resolve, reject), 1000);
+                setTimeout(
+                  () => extractTranscriptSegments(resolve, reject, openedTranscript, openerIsMenuItem, openerElement),
+                  1000,
+                );
               } else {
                 reject(new Error('Could not find transcript option in menu'));
               }
@@ -131,13 +152,25 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           console.log('[Content] Found transcript button, clicking...');
           (transcriptButton as HTMLElement).click();
 
+          openedTranscript = true;
+          openerElement = transcriptButton as HTMLElement;
+
           // Wait for transcript panel to load
-          setTimeout(() => extractTranscriptSegments(resolve, reject), 1000);
+          setTimeout(
+            () => extractTranscriptSegments(resolve, reject, openedTranscript, openerIsMenuItem, openerElement),
+            1000,
+          );
         }
       });
     };
 
-    const extractTranscriptSegments = (resolve: (value: any) => void, reject: (reason: any) => void) => {
+    const extractTranscriptSegments = (
+      resolve: (value: any) => void,
+      reject: (reason: any) => void,
+      shouldCloseAfter: boolean,
+      openerIsMenuItem: boolean,
+      openerElement: HTMLElement | null,
+    ) => {
       console.log('[Content] Extracting transcript segments from DOM...');
 
       // Find transcript segments in the panel
@@ -172,6 +205,48 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           duration: 0, // We don't have duration from DOM, but it's not critical
         };
       });
+
+      if (shouldCloseAfter) {
+        try {
+          // Prefer the explicit close button in the transcript header if available
+          const transcriptHeader = document.querySelector('ytd-transcript-header-renderer');
+          let closeButton: HTMLElement | null = null;
+
+          if (transcriptHeader) {
+            closeButton = transcriptHeader.querySelector(
+              'button[aria-label*="close" i], tp-yt-paper-icon-button[aria-label*="close" i], yt-icon-button[aria-label*="close" i]',
+            ) as HTMLElement | null;
+          }
+
+          if (!closeButton) {
+            closeButton = document.querySelector(
+              'button[aria-label*="close transcript" i], tp-yt-paper-icon-button[aria-label*="close transcript" i]',
+            ) as HTMLElement | null;
+          }
+
+          const firstSegment = segments[0] as Element | undefined;
+          const transcriptContainer = firstSegment
+            ? (firstSegment.closest(
+                'ytd-transcript-renderer, ytd-engagement-panel-section-list-renderer, ytd-transcript-segment-list-renderer',
+              ) as HTMLElement | null)
+            : null;
+
+          if (closeButton) {
+            console.log('[Content] Closing transcript panel via header close button');
+            closeButton.click();
+          } else if (!openerIsMenuItem && openerElement) {
+            console.log('[Content] Closing transcript panel via opener element');
+            openerElement.click();
+          } else if (transcriptContainer) {
+            console.log('[Content] Hiding transcript container element');
+            transcriptContainer.style.display = 'none';
+          } else {
+            console.log('[Content] No close control found for transcript panel');
+          }
+        } catch (closeError) {
+          console.warn('[Content] Failed to close transcript panel:', closeError);
+        }
+      }
 
       console.log('[Content] Successfully extracted', transcript.length, 'entries');
       resolve(transcript);
