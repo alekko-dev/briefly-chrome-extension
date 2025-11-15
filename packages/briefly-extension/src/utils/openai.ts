@@ -28,7 +28,7 @@ function buildLanguageInstruction(languages?: string[]): string {
 
   const fallbackLanguage = normalizedLanguages[0];
 
-  return `LANGUAGE PREFERENCES:\n- Detect the language of the transcript before writing.\n- If the transcript language is in this set: ${normalizedLanguages.join(
+  return `IMPORTANT LANGUAGE RULES:\n- Detect the language of the transcript before writing.\n- If the transcript language is in this set: ${normalizedLanguages.join(
     ', '
   )}, keep the summary in that same language.\n- If the transcript language is not in that set, translate the entire summary to ${fallbackLanguage}.\n- Maintain consistent language across headings, bullets, and timestamps.`;
 }
@@ -55,6 +55,8 @@ Your summaries should:
 4. Include key timestamps for important moments
 5. End with a brief conclusion
 6. Use clear headings and bullet points for readability
+
+${languageInstruction ? languageInstruction : ''}
 
 CRITICAL TIMESTAMP FORMATTING RULES:
 - ALWAYS use square brackets: [MM:SS] or [H:MM:SS]
