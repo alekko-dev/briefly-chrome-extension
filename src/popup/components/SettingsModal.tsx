@@ -30,7 +30,7 @@ function SettingsModal({ settings, onSave, onClose }: SettingsModalProps) {
   };
 
   return (
-    <div className="fixed inset-0 flex items-center justify-center z-50 bg-black/20 backdrop-blur-sm dark:bg-black/40">
+    <div className="fixed inset-0 flex items-start justify-center z-50 bg-black/20 backdrop-blur-sm dark:bg-black/40 overflow-y-auto pt-8 pb-8">
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg mx-4 border border-gray-200 dark:bg-slate-900 dark:border-slate-700">
         <form onSubmit={handleSubmit}>
           <div className="p-6">
