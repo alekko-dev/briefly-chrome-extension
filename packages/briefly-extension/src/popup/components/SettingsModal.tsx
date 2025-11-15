@@ -3,6 +3,7 @@ import React, { useState } from 'react';
 interface Settings {
   youtubeApiKey: string;
   openaiApiKey: string;
+  comfortableLanguages: string[];
 }
 
 interface SettingsModalProps {
@@ -14,10 +15,18 @@ interface SettingsModalProps {
 function SettingsModal({ settings, onSave, onClose }: SettingsModalProps) {
   const [youtubeApiKey, setYoutubeApiKey] = useState(settings.youtubeApiKey);
   const [openaiApiKey, setOpenaiApiKey] = useState(settings.openaiApiKey);
+  const [comfortableLanguagesInput, setComfortableLanguagesInput] = useState(
+    settings.comfortableLanguages?.join(', ') || ''
+  );
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSave({ youtubeApiKey, openaiApiKey });
+    const comfortableLanguages = comfortableLanguagesInput
+      .split(/[,\n]/)
+      .map((language) => language.trim())
+      .filter((language) => language.length > 0);
+
+    onSave({ youtubeApiKey, openaiApiKey, comfortableLanguages });
   };
 
   return (
@@ -76,6 +85,24 @@ function SettingsModal({ settings, onSave, onClose }: SettingsModalProps) {
                 >
                   OpenAI Dashboard
                 </a>
+              </p>
+            </div>
+
+            {/* Comfortable Languages */}
+            <div className="mb-2">
+              <label htmlFor="comfortable-languages" className="block text-base font-semibold text-gray-900 mb-2 dark:text-gray-100">
+                Comfortable Languages
+              </label>
+              <textarea
+                id="comfortable-languages"
+                value={comfortableLanguagesInput}
+                onChange={(e) => setComfortableLanguagesInput(e.target.value)}
+                className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-white text-gray-900 dark:bg-slate-900 dark:border-slate-600 dark:text-gray-100"
+                placeholder="Example: English, Español, Français"
+                rows={3}
+              />
+              <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
+                Add the languages you are comfortable reading. Briefly will keep summaries in the video's language when it matches one of these entries, otherwise it will translate to the first language in the list.
               </p>
             </div>
           </div>

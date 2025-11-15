@@ -7,6 +7,7 @@ import { generateSummary } from '../utils/openai';
 interface Settings {
   youtubeApiKey: string;
   openaiApiKey: string;
+  comfortableLanguages: string[];
 }
 
 interface Summary {
@@ -18,7 +19,11 @@ interface Summary {
 
 function App() {
   const [showSettings, setShowSettings] = useState(false);
-  const [settings, setSettings] = useState<Settings>({ youtubeApiKey: '', openaiApiKey: '' });
+  const [settings, setSettings] = useState<Settings>({
+    youtubeApiKey: '',
+    openaiApiKey: '',
+    comfortableLanguages: [],
+  });
   const [summary, setSummary] = useState<Summary | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -27,31 +32,37 @@ function App() {
 
   useEffect(() => {
     // Load settings and summary from chrome.storage
-    chrome.storage.local.get(['youtubeApiKey', 'openaiApiKey', 'summary'], (result) => {
-      if (result.youtubeApiKey || result.openaiApiKey) {
-        setSettings({
-          youtubeApiKey: result.youtubeApiKey || '',
-          openaiApiKey: result.openaiApiKey || '',
-        });
-      }
+    chrome.storage.local.get(
+      ['youtubeApiKey', 'openaiApiKey', 'comfortableLanguages', 'summary'],
+      (result) => {
+        if (result.youtubeApiKey || result.openaiApiKey || result.comfortableLanguages) {
+          setSettings({
+            youtubeApiKey: result.youtubeApiKey || '',
+            openaiApiKey: result.openaiApiKey || '',
+            comfortableLanguages: Array.isArray(result.comfortableLanguages)
+              ? result.comfortableLanguages
+              : [],
+          });
+        }
 
-      // Load stored summary and check if it matches current video
-      if (result.summary) {
-        chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
-          const videoId = tab.url?.includes('youtube.com/watch')
-            ? new URL(tab.url).searchParams.get('v')
-            : null;
+        // Load stored summary and check if it matches current video
+        if (result.summary) {
+          chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
+            const videoId = tab.url?.includes('youtube.com/watch')
+              ? new URL(tab.url).searchParams.get('v')
+              : null;
 
-          // Only load summary if it matches the current video
-          if (videoId && result.summary.videoId === videoId) {
-            setSummary(result.summary);
-          } else {
-            // Clear stale summary from storage
-            chrome.storage.local.remove('summary');
-          }
-        });
+            // Only load summary if it matches the current video
+            if (videoId && result.summary.videoId === videoId) {
+              setSummary(result.summary);
+            } else {
+              // Clear stale summary from storage
+              chrome.storage.local.remove('summary');
+            }
+          });
+        }
       }
-    });
+    );
   }, []);
 
   useEffect(() => {
@@ -81,6 +92,7 @@ function App() {
     chrome.storage.local.set({
       youtubeApiKey: newSettings.youtubeApiKey,
       openaiApiKey: newSettings.openaiApiKey,
+      comfortableLanguages: newSettings.comfortableLanguages,
     });
     setShowSettings(false);
   };
@@ -118,8 +130,14 @@ function App() {
         return;
       }
 
+      const comfortableLanguages = settings.comfortableLanguages
+        ?.map((lang) => lang.trim())
+        .filter((lang) => lang.length > 0);
+
       // Generate summary using OpenAI
-      const summaryContent = await generateSummary(transcript, settings.openaiApiKey);
+      const summaryContent = await generateSummary(transcript, settings.openaiApiKey, {
+        comfortableLanguages,
+      });
 
       const newSummary = {
         videoId,
