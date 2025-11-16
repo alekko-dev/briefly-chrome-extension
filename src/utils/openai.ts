@@ -46,7 +46,7 @@ export async function generateSummary(
 
     const languageInstruction = buildLanguageInstruction(options?.comfortableLanguages);
 
-    const basePrompt = `You are a helpful assistant that creates detailed, well-structured summaries of YouTube video transcripts.
+    const systemPrompt = `You are a helpful assistant that creates detailed, well-structured summaries of YouTube video transcripts.
 
 Your summaries should:
 1. Start with a brief overview (2-3 sentences)
@@ -76,10 +76,6 @@ INCORRECT examples:
 ✗ Timestamp: 12:34
 ✗ [12:34 - 15:20] Topic discussed
 ✗ At 12:34 the speaker mentions...`;
-
-    const systemPrompt = [basePrompt, languageInstruction]
-      .filter(Boolean)
-      .join('\n\n');
 
     const userPrompt = `Please create a comprehensive summary of this YouTube video transcript. Include important timestamps for key moments:
 
