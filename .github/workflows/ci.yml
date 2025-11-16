@@ -26,18 +26,9 @@ jobs:
       - name: Build
         run: npm run build
 
-      - name: Archive build output
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: |
-          SHORT_SHA="${GITHUB_SHA::7}"
-          ARCHIVE_NAME="briefly-chrome-extension-${SHORT_SHA}.zip"
-          rm -f "$ARCHIVE_NAME"
-          zip -r "$ARCHIVE_NAME" dist
-          echo "ARCHIVE_NAME=$ARCHIVE_NAME" >> "$GITHUB_ENV"
-
       - name: Upload build artifact
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.ARCHIVE_NAME }}
-          path: ${{ env.ARCHIVE_NAME }}
+          name: briefly-chrome-extension-${{ github.sha }}
+          path: dist
