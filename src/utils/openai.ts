@@ -28,9 +28,11 @@ function buildLanguageInstruction(languages?: string[]): string {
 
   const fallbackLanguage = normalizedLanguages[0];
 
-  return `IMPORTANT LANGUAGE RULES:\n- Detect the language of the transcript before writing.\n- If the transcript language is in this set: ${normalizedLanguages.join(
-    ', '
-  )}, keep the summary in that same language.\n- If the transcript language is not in that set, translate the entire summary to ${fallbackLanguage}.\n- Maintain consistent language across headings, bullets, and timestamps.`;
+  return `IMPORTANT LANGUAGE RULES:
+- Detect the language of the transcript before writing.
+- If the transcript language is in this set: ${normalizedLanguages.join(', ')}, keep the summary in that same language.
+- If the transcript language is not in that set, translate the entire summary to ${fallbackLanguage}.
+- Maintain consistent language across headings, bullets, and timestamps.`;
 }
 
 export async function generateSummary(
@@ -51,10 +53,11 @@ export async function generateSummary(
 Your summaries should:
 1. Start with a brief overview (2-3 sentences)
 2. Include a detailed breakdown of main topics discussed
-3. Filter out any sponsor messages, subscribe requests, or promotional content
-4. Include key timestamps for important moments
-5. End with a brief conclusion
-6. Use clear headings and bullet points for readability
+3. Instead of merely listing the topics discussed, explain the key points and conclusions
+4. Filter out any sponsor messages, subscribe requests, or promotional content
+5. Include key timestamps for important moments
+6. End with a brief conclusion
+7. Use clear headings and bullet points for readability
 
 ${languageInstruction ? languageInstruction : ''}
 
