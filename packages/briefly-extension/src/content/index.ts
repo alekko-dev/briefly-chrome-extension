@@ -96,6 +96,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     console.log('[Content] GET_TRANSCRIPT_DATA handler triggered for video:', message.videoId);
 
     // Strategy: Click the transcript button programmatically and extract from DOM
+    const transcriptPanelId = 'engagement-panel-searchable-transcript';
+    const transcriptPanelSelector = `ytd-engagement-panel-section-list-renderer[target-id="${transcriptPanelId}"]`;
+
+    const getTranscriptPanel = () => document.querySelector<HTMLElement>(transcriptPanelSelector);
+
     const extractTranscriptFromDOM = () => {
       return new Promise((resolve, reject) => {
         console.log('[Content] Looking for transcript button...');
@@ -113,8 +118,6 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           setTimeout(() => extractTranscriptSegments(resolve, reject, false, false, null), 0);
           return;
         }
-
-        const transcriptPanelId = 'engagement-panel-searchable-transcript';
 
         const referencesTranscriptPanel = (element: Element | null): boolean => {
           if (!element) {
@@ -305,32 +308,56 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
       if (shouldCloseAfter) {
         try {
-          // Prefer the explicit close button in the transcript header if available
-          const transcriptHeader = document.querySelector('ytd-transcript-header-renderer');
-          let closeButton: HTMLElement | null = null;
+          const findPanelCloseControl = () => {
+            const panel = getTranscriptPanel();
 
-          if (transcriptHeader) {
-            closeButton = transcriptHeader.querySelector(
-              'button[aria-label*="close" i], tp-yt-paper-icon-button[aria-label*="close" i], yt-icon-button[aria-label*="close" i]',
-            ) as HTMLElement | null;
-          }
+            if (!panel) {
+              return null;
+            }
 
-          if (!closeButton) {
-            closeButton = document.querySelector(
-              'button[aria-label*="close transcript" i], tp-yt-paper-icon-button[aria-label*="close transcript" i]',
-            ) as HTMLElement | null;
-          }
+            // Prefer the explicit close button in the engagement panel header
+            const explicitCloseButton = panel.querySelector<HTMLElement>(
+              '#visibility-button ytd-button-renderer button',
+            );
+            if (explicitCloseButton) {
+              return explicitCloseButton;
+            }
 
-          const firstSegment = segments[0] as Element | undefined;
-          const transcriptContainer = firstSegment
-            ? (firstSegment.closest(
-                'ytd-transcript-renderer, ytd-engagement-panel-section-list-renderer, ytd-transcript-segment-list-renderer',
-              ) as HTMLElement | null)
-            : null;
+            const header = panel.querySelector<HTMLElement>('ytd-transcript-header-renderer, #header');
 
-          if (closeButton) {
-            console.log('[Content] Closing transcript panel via header close button');
-            closeButton.click();
+            const structuralSelectors = [
+              '#close-button',
+              '#dismiss-button',
+              '#visibility-button button',
+              '#visibility-button ytd-button-renderer button',
+              'yt-icon-button#close-button',
+              'tp-yt-paper-icon-button#close-button',
+              'yt-icon-button[aria-haspopup="false"]',
+              'tp-yt-paper-icon-button[aria-haspopup="false"]',
+              'button[aria-haspopup="false"]',
+            ];
+
+            for (const selector of structuralSelectors) {
+              const candidate = (header || panel).querySelector<HTMLElement>(selector);
+              if (candidate) {
+                return candidate;
+              }
+            }
+
+            const fallbackButton = header?.querySelector<HTMLElement>('yt-icon-button, tp-yt-paper-icon-button, button');
+            if (fallbackButton) {
+              return fallbackButton;
+            }
+
+            return null;
+          };
+
+          const closeControl = findPanelCloseControl();
+          const transcriptContainer = getTranscriptPanel();
+
+          if (closeControl) {
+            console.log('[Content] Closing transcript panel via structural close control');
+            closeControl.click();
           } else if (!openerIsMenuItem && openerElement) {
             console.log('[Content] Closing transcript panel via opener element');
             openerElement.click();
