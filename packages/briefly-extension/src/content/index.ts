@@ -114,29 +114,126 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           return;
         }
 
-        // Find the "Show transcript" button
-        const transcriptButton = document.querySelector('button[aria-label*="transcript" i], button[aria-label*="Show transcript" i]');
+        const transcriptPanelId = 'engagement-panel-searchable-transcript';
+
+        const referencesTranscriptPanel = (element: Element | null): boolean => {
+          if (!element) {
+            return false;
+          }
+
+          const attributesToInspect = [
+            'target-id',
+            'data-target-id',
+            'aria-controls',
+            'href',
+            'data-params',
+            'js-panel-id',
+          ];
+
+          return attributesToInspect.some(attributeName => {
+            const value = element.getAttribute(attributeName);
+            return typeof value === 'string' && value.includes(transcriptPanelId);
+          });
+        };
+
+        const findClickableAncestor = (element: Element | null): HTMLElement | null => {
+          if (!element) {
+            return null;
+          }
+
+          if (element instanceof HTMLElement && element.matches('button, tp-yt-paper-item, ytd-menu-service-item-renderer, ytd-button-renderer, yt-button-shape')) {
+            return element;
+          }
+
+          return (element.closest(
+            'button, tp-yt-paper-item, ytd-menu-service-item-renderer, ytd-button-renderer, yt-button-shape',
+          ) as HTMLElement | null);
+        };
+
+        const findTranscriptButton = () => {
+          const structuralSelectors = [
+            `[aria-controls="${transcriptPanelId}"]`,
+            `[target-id="${transcriptPanelId}"]`,
+            `[data-target-id="${transcriptPanelId}"]`,
+            `[href*="${transcriptPanelId}"]`,
+            'ytd-video-description-transcript-section-renderer ytd-button-renderer button',
+            'ytd-video-description-transcript-section-renderer yt-button-shape button',
+          ];
+
+          for (const selector of structuralSelectors) {
+            const element = document.querySelector(selector);
+            if (referencesTranscriptPanel(element) || element?.closest('ytd-video-description-transcript-section-renderer')) {
+              const clickable = findClickableAncestor(element);
+              if (clickable) {
+                return clickable;
+              }
+            }
+          }
+
+          const genericButtons = document.querySelectorAll('button, yt-button-shape button, ytd-button-renderer button');
+          for (const button of Array.from(genericButtons)) {
+            if (referencesTranscriptPanel(button) || referencesTranscriptPanel(button.closest('[target-id]'))) {
+              const clickable = findClickableAncestor(button);
+              if (clickable) {
+                return clickable;
+              }
+            }
+          }
+
+          return null;
+        };
+
+        const findTranscriptMenuItem = () => {
+          const menuContainers = document.querySelectorAll('ytd-menu-popup-renderer, tp-yt-iron-dropdown');
+
+          for (const container of Array.from(menuContainers)) {
+            const items = container.querySelectorAll<HTMLElement>(
+              'tp-yt-paper-item, ytd-menu-service-item-renderer, button[role="menuitem"], a[role="menuitem"]',
+            );
+
+            for (const item of Array.from(items)) {
+              if (referencesTranscriptPanel(item)) {
+                return item;
+              }
+
+              const targetCarrier = item.closest('[target-id], [data-target-id], [aria-controls]');
+              if (referencesTranscriptPanel(targetCarrier)) {
+                return item;
+              }
+
+              const panelTarget = item.querySelector('[target-id], [data-target-id], [aria-controls], [href]');
+              if (referencesTranscriptPanel(panelTarget)) {
+                return item;
+              }
+            }
+          }
+
+          return null;
+        };
+
+        const transcriptButton = findTranscriptButton();
 
         if (!transcriptButton) {
           console.log('[Content] Transcript button not found, searching for it in menu...');
 
-          // Try to find it in the more menu
-          const moreButton = document.querySelector('button[aria-label="More actions"]');
+          const moreButton =
+            document.querySelector('ytd-watch-metadata ytd-menu-renderer button[aria-haspopup="true"]') ||
+            document.querySelector('button[aria-label*="more" i][aria-haspopup="true"]');
+
           if (moreButton) {
             (moreButton as HTMLElement).click();
 
             setTimeout(() => {
-              const transcriptMenuItem = document.querySelector('ytd-menu-service-item-renderer:has(yt-formatted-string:contains("transcript")) tp-yt-paper-item, [role="menuitem"]:has(*:contains("transcript"))');
+              const transcriptMenuItem = findTranscriptMenuItem();
 
               if (transcriptMenuItem) {
                 console.log('[Content] Found transcript in menu, clicking...');
-                (transcriptMenuItem as HTMLElement).click();
+                transcriptMenuItem.click();
 
                 openedTranscript = true;
-                openerElement = transcriptMenuItem as HTMLElement;
+                openerElement = transcriptMenuItem;
                 openerIsMenuItem = true;
 
-                // Wait for transcript panel to load
                 setTimeout(
                   () => extractTranscriptSegments(resolve, reject, openedTranscript, openerIsMenuItem, openerElement),
                   1000,
@@ -150,12 +247,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           }
         } else {
           console.log('[Content] Found transcript button, clicking...');
-          (transcriptButton as HTMLElement).click();
+          transcriptButton.click();
 
           openedTranscript = true;
-          openerElement = transcriptButton as HTMLElement;
+          openerElement = transcriptButton;
+          openerIsMenuItem = transcriptButton.closest('ytd-menu-popup-renderer') !== null;
 
-          // Wait for transcript panel to load
           setTimeout(
             () => extractTranscriptSegments(resolve, reject, openedTranscript, openerIsMenuItem, openerElement),
             1000,
