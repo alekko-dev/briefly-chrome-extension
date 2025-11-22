@@ -1,5 +1,6 @@
 import { TranscriptEntry, formatTimestamp } from './youtube';
 import { createTranscriptError } from './errors';
+import { getLanguageNameFromCode } from './languages';
 
 /**
  * Generates a summary of the video transcript using OpenAI's GPT API
@@ -8,32 +9,102 @@ interface GenerateSummaryOptions {
   comfortableLanguages?: string[];
 }
 
-/**
- * Turns the user-configured comfortable languages into a short instruction block
- * that is appended to the system prompt. The block explains the fallback
- * translation behavior, making it clear to reviewers (and ourselves) why the
- * additional text is there.
- */
-function buildLanguageInstruction(languages?: string[]): string {
-  if (!languages) {
-    return '';
+interface DetectedLanguage {
+  languageName: string;
+  languageCode: string;
+}
+
+async function detectTranscriptLanguage(
+  transcriptText: string,
+  apiKey: string
+): Promise<DetectedLanguage> {
+  const systemPrompt = `You are a language detection assistant.
+
+Your job is to detect the primary human language of a transcript.
+You MUST respond with a single valid JSON object and nothing else.`;
+
+  const userPrompt = `Detect the primary language of the following transcript.
+
+Return your answer in this exact JSON format (no extra keys, no comments):
+{
+  "language_name": "<FULL_LANGUAGE_NAME_IN_ENGLISH>",
+  "language_code": "<ISO_639_1_LOWERCASE>"
+}
+
+Transcript:
+${transcriptText}`;
+
+  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: 'gpt-4o-mini',
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      temperature: 0,
+      max_tokens: 50,
+    }),
+  });
+
+  if (!response.ok) {
+    let message = `OpenAI API error during language detection: ${response.status}`;
+    try {
+      const errorData = await response.json();
+      if (errorData?.error?.message) {
+        message = errorData.error.message;
+      }
+    } catch {
+      // Ignore JSON parsing errors and fall back to status-based message
+    }
+
+    throw createTranscriptError('OPENAI_ERROR', message);
   }
 
-  const normalizedLanguages = languages
-    .map((lang) => lang.trim())
-    .filter((lang) => lang.length > 0);
+  const data = await response.json();
+  const content = data.choices?.[0]?.message?.content;
 
-  if (normalizedLanguages.length === 0) {
-    return '';
+  if (!content) {
+    throw createTranscriptError(
+      'OPENAI_ERROR',
+      'No language detected from OpenAI'
+    );
   }
 
-  const fallbackLanguage = normalizedLanguages[0];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    throw createTranscriptError(
+      'OPENAI_ERROR',
+      'Failed to parse language detection result from OpenAI'
+    );
+  }
 
-  return `IMPORTANT LANGUAGE RULES:
-- Detect the language of the transcript before writing.
-- If the transcript language is in this set: ${normalizedLanguages.join(', ')}, keep the summary in that same language.
-- If the transcript language is not in that set, translate the entire summary to ${fallbackLanguage}.
-- Maintain consistent language across headings, bullets, and timestamps.`;
+  const languageName =
+    typeof (parsed as any).language_name === 'string'
+      ? (parsed as any).language_name.trim()
+      : '';
+  const languageCode =
+    typeof (parsed as any).language_code === 'string'
+      ? (parsed as any).language_code.trim()
+      : '';
+
+  if (!languageName || !languageCode) {
+    throw createTranscriptError(
+      'OPENAI_ERROR',
+      'OpenAI did not return a valid language_name and language_code'
+    );
+  }
+
+  return {
+    languageName,
+    languageCode,
+  };
 }
 
 export async function generateSummary(
@@ -47,7 +118,40 @@ export async function generateSummary(
       .map((entry) => `[${formatTimestamp(entry.start)}] ${entry.text}`)
       .join('\n');
 
-    const languageInstruction = buildLanguageInstruction(options?.comfortableLanguages);
+    // Step 1: Detect transcript language with a dedicated call
+    const detectedLanguage = await detectTranscriptLanguage(transcriptText, apiKey);
+
+    // Step 2: Decide which language the summary should use based on
+    // the detected language and the user's comfortableLanguages setting.
+    const normalizedComfortableLanguageCodes = options?.comfortableLanguages
+      ?.map((lang) => lang.trim())
+      .filter((lang) => lang.length > 0);
+
+    const detectedCodeLower = detectedLanguage.languageCode.toLowerCase();
+    let targetLanguageCode = detectedCodeLower;
+
+    if (normalizedComfortableLanguageCodes && normalizedComfortableLanguageCodes.length > 0) {
+      const comfortableCodesLower = normalizedComfortableLanguageCodes.map((code) =>
+        code.toLowerCase()
+      );
+
+      const detectedIsComfortable = comfortableCodesLower.includes(detectedCodeLower);
+
+      if (detectedIsComfortable) {
+        targetLanguageCode = detectedCodeLower;
+      } else {
+        targetLanguageCode = comfortableCodesLower[0];
+      }
+    }
+
+    const targetLanguageName = getLanguageNameFromCode(targetLanguageCode);
+
+    const languageInstruction = `LANGUAGE INSTRUCTIONS:
+- The transcript language is ${detectedLanguage.languageName} (code: ${detectedLanguage.languageCode}).
+- You MUST write the entire summary in ${targetLanguageName}.
+- Do not use any language other than ${targetLanguageName}, except for proper names or code identifiers.
+- Use ${targetLanguageName} for all headings, bullet points, and timestamps.
+- If you start to respond in a different language, immediately switch back to ${targetLanguageName} and continue only in ${targetLanguageName}.`;
 
     const systemPrompt = `You are a helpful assistant that creates detailed, well-structured summaries of YouTube video transcripts.
 
@@ -60,7 +164,7 @@ Your summaries should:
 6. End with a brief conclusion
 7. Use clear headings and bullet points for readability
 
-${languageInstruction ? languageInstruction : ''}
+${languageInstruction}
 
 CRITICAL TIMESTAMP FORMATTING RULES:
 - ALWAYS use square brackets: [MM:SS] or [H:MM:SS]

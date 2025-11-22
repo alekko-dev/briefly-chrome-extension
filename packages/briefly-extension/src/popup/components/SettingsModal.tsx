@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { LANGUAGE_OPTIONS } from '../../utils/languages';
 
 interface Settings {
   youtubeApiKey: string;
@@ -16,18 +17,21 @@ interface SettingsModalProps {
 function SettingsModal({ settings, onSave, onClose }: SettingsModalProps) {
   const [youtubeApiKey, setYoutubeApiKey] = useState(settings.youtubeApiKey);
   const [openaiApiKey, setOpenaiApiKey] = useState(settings.openaiApiKey);
-  const [comfortableLanguagesInput, setComfortableLanguagesInput] = useState(
-    settings.comfortableLanguages?.join(', ') || ''
+  const [selectedLanguageCodes, setSelectedLanguageCodes] = useState<string[]>(
+    settings.comfortableLanguages || []
   );
+  const [languageSearch, setLanguageSearch] = useState('');
   const [enableNotifications, setEnableNotifications] = useState(settings.enableNotifications);
+
+  const handleLanguageToggle = (code: string) => {
+    setSelectedLanguageCodes((prev) =>
+      prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code]
+    );
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const comfortableLanguages = comfortableLanguagesInput
-      .split(/[,\n]/)
-      .map((language) => language.trim())
-      .filter((language) => language.length > 0);
-
+    const comfortableLanguages = selectedLanguageCodes;
     onSave({ youtubeApiKey, openaiApiKey, comfortableLanguages, enableNotifications });
   };
 
@@ -108,16 +112,66 @@ function SettingsModal({ settings, onSave, onClose }: SettingsModalProps) {
                 <label htmlFor="comfortable-languages" className="block text-sm font-medium text-gray-900 mb-2 dark:text-gray-100">
                   Comfortable Languages
                 </label>
-                <textarea
-                  id="comfortable-languages"
-                  value={comfortableLanguagesInput}
-                  onChange={(e) => setComfortableLanguagesInput(e.target.value)}
-                  className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-white text-gray-900 dark:bg-slate-900 dark:border-slate-600 dark:text-gray-100"
-                  placeholder="Example: English, Español, Français"
-                  rows={3}
+                <input
+                  type="text"
+                  value={languageSearch}
+                  onChange={(e) => setLanguageSearch(e.target.value)}
+                  placeholder="Search languages..."
+                  className="w-full mb-2 px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent bg-white text-gray-900 dark:bg-slate-900 dark:border-slate-600 dark:text-gray-100"
                 />
+                <div
+                  id="comfortable-languages"
+                  className="max-h-48 overflow-y-auto border border-gray-300 rounded-lg px-3 py-2 bg-white dark:bg-slate-900 dark:border-slate-600"
+                >
+                  {LANGUAGE_OPTIONS.filter((language) => {
+                    const query = languageSearch.trim().toLowerCase();
+                    if (!query) {
+                      return true;
+                    }
+
+                    const name = language.name.toLowerCase();
+                    const native = language.nativeName ? language.nativeName.toLowerCase() : '';
+                    const code = language.code.toLowerCase();
+
+                    return (
+                      name.includes(query) ||
+                      (native && native.includes(query)) ||
+                      code.includes(query)
+                    );
+                  })
+                    .sort((a, b) => {
+                      const aSelected = selectedLanguageCodes.includes(a.code);
+                      const bSelected = selectedLanguageCodes.includes(b.code);
+
+                      if (aSelected && !bSelected) return -1;
+                      if (!aSelected && bSelected) return 1;
+
+                      return a.name.localeCompare(b.name);
+                    })
+                    .map((language) => {
+                    const label =
+                      language.nativeName && language.nativeName !== language.name
+                        ? `${language.name} (${language.nativeName})`
+                        : language.name;
+
+                    return (
+                      <label
+                        key={language.code}
+                        className="flex items-center text-sm text-gray-800 py-1 cursor-pointer dark:text-gray-100"
+                      >
+                        <input
+                          type="checkbox"
+                          className="mr-2 w-4 h-4 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-900"
+                          checked={selectedLanguageCodes.includes(language.code)}
+                          onChange={() => handleLanguageToggle(language.code)}
+                        />
+                        <span>{label}</span>
+                      </label>
+                    );
+                  })}
+                </div>
                 <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
-                  Add the languages you are comfortable reading. Briefly will keep summaries in the video's language when it matches one of these entries, otherwise it will translate to the first language in the list.
+                  Select the languages you are comfortable reading. Briefly will keep summaries in the video's language when it matches one of these languages; otherwise it will translate to the first language in the list.
                 </p>
               </div>
 
