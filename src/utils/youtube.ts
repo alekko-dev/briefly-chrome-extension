@@ -7,17 +7,20 @@ export interface TranscriptEntry {
 }
 
 /**
- * Extracts YouTube transcript using multiple methods
- * This implementation uses the YouTube timedtext API which is more reliable
- * than the official API for transcript extraction
+ * Extracts a YouTube transcript for the active tab.
+ *
+ * This is a thin wrapper around the DOM-based transcript panel:
+ * - Sends `GET_TRANSCRIPT_DATA` to the content script.
+ * - Content script opens the transcript panel and scrapes segments from the DOM.
+ * - Errors are returned as structured `TranscriptError` instances where possible.
  */
 export async function getYouTubeTranscript(videoId: string): Promise<TranscriptEntry[]> {
   console.log('[YouTube] getYouTubeTranscript called with videoId:', videoId);
 
   try {
-    // Method 1: Try to get transcript from YouTube's timedtext API
+    // DOM-based transcript extraction via content script
     const transcript = await fetchTimedTextTranscript(videoId);
-    console.log('[YouTube] fetchTimedTextTranscript returned:', transcript?.length, 'entries');
+    console.log('[YouTube] DOM transcript fetch returned:', transcript?.length, 'entries');
 
     if (transcript && transcript.length > 0) {
       return transcript;
@@ -31,12 +34,20 @@ export async function getYouTubeTranscript(videoId: string): Promise<TranscriptE
 }
 
 /**
- * Fetches transcript using YouTube's Innertube API via content script
- * This sends a message to content script to use YouTube's internal API
+ * Requests transcript data from the content script.
+ *
+ * The content script uses `src/content/transcriptDom.ts` to:
+ * - Open YouTube's transcript panel.
+ * - Scrape `ytd-transcript-segment-renderer` elements from the DOM.
+ * - Parse timestamps into `TranscriptEntry` objects.
+ *
+ * Any DOM / timing failures are wrapped into `TranscriptError` with a specific
+ * `TranscriptErrorCode` (e.g. `UI_NOT_FOUND`, `MENU_ITEM_NOT_FOUND`,
+ * `SEGMENTS_NOT_FOUND`, `PAGE_NOT_READY`).
  */
 async function fetchTimedTextTranscript(videoId: string): Promise<TranscriptEntry[]> {
   try {
-    console.log('[Transcript] Starting fetch using Innertube API for video:', videoId);
+    console.log('[Transcript] Starting DOM-based transcript fetch for video:', videoId);
 
     // Get the active tab
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -47,7 +58,7 @@ async function fetchTimedTextTranscript(videoId: string): Promise<TranscriptEntr
 
     console.log('[Transcript] Sending GET_TRANSCRIPT_DATA message to content script');
 
-    // Send message to content script to fetch transcript using Innertube API
+    // Ask content script to open the transcript panel and extract segments
     return new Promise((resolve, reject) => {
       chrome.tabs.sendMessage(
         tab.id!,

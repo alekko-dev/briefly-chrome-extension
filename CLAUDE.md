@@ -35,9 +35,9 @@ npm run preview
 This is a **Manifest V3** extension with three isolated execution contexts that communicate via Chrome's message passing API:
 
 1. **Background Service Worker** (`src/background/index.ts`)
-   - Minimal message handler
-   - Runs in background, not tied to any tab
-   - Currently used only for logging; most logic is in popup
+   - Orchestrates transcript extraction and OpenAI summarization
+   - Manages per-tab badge state and system notifications
+   - Tracks in-progress summaries in `chrome.storage.local`
 
 2. **Content Script** (`src/content/index.ts`)
    - Injected into all `youtube.com` pages
@@ -49,9 +49,10 @@ This is a **Manifest V3** extension with three isolated execution contexts that 
 
 3. **Popup UI** (`src/popup/`)
    - React application shown when clicking extension icon
-   - Main orchestrator: calls YouTube API, OpenAI API, and sends messages to content script
+   - Starts summaries by sending `START_SUMMARY` to the background worker
+   - Listens for `SUMMARY_PROGRESS`, `SUMMARY_DONE`, and `SUMMARY_ERROR` messages
    - Has access to Chrome APIs but NOT to page DOM
-   - Persists settings to `chrome.storage.local`
+   - Persists settings and viewed-summary state to `chrome.storage.local`
 
 ### Message Passing Pattern
 
@@ -78,29 +79,39 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
 1. **User clicks "Summarize This Video"** in popup
 2. **Popup** extracts video ID from active tab URL
-3. **YouTube Transcript Extraction** (`src/utils/youtube.ts`):
+3. **Popup → Background**: popup sends `START_SUMMARY` with `{ videoId, videoTitle, tabId, openaiApiKey, comfortableLanguages }`.
+4. **YouTube Transcript Extraction** (`src/utils/youtube.ts` + `src/content/transcriptDom.ts`):
    - Sends `GET_TRANSCRIPT_DATA` message to content script
    - Content script clicks "Show transcript" button on YouTube
    - Waits for transcript panel to load
    - Extracts transcript segments from DOM (`ytd-transcript-segment-renderer` elements)
    - Parses timestamps (MM:SS or H:MM:SS format) and text
    - Returns `TranscriptEntry[]` with timestamped text
-4. **OpenAI Summary Generation** (`src/utils/openai.ts`):
+5. **OpenAI Summary Generation** (`src/utils/openai.ts`):
    - Formats transcript with timestamps
    - Calls OpenAI Chat Completions API (GPT-4o-mini)
    - Returns markdown-formatted summary with clickable timestamps
-5. **User clicks timestamp** in summary
-6. **Popup** sends `SEEK_VIDEO` message to content script
-7. **Content script** seeks video, plays if paused, scrolls into view
+6. **Background → Storage & Badge**:
+   - Stores summary under `summary-{videoId}` and clears `summaryInProgress`
+   - Sets a green per-tab badge (`✓`) and optional notification when summary is ready
+7. **Background → Popup**:
+   - Sends `SUMMARY_PROGRESS`, `SUMMARY_DONE`, or `SUMMARY_ERROR` messages to any open popup
+8. **Popup**:
+   - Reads summaries from `chrome.storage.local` for the active video
+   - Clears the `✓` badge for the active tab the first time the user views that summary
+9. **User clicks timestamp** in summary
+10. **Popup** sends `SEEK_VIDEO` message to content script
+11. **Content script** seeks video, plays if paused, scrolls into view
 
 ### State Management
 
-No external state library - all state in `App.tsx` using React hooks:
-- `settings`: API keys loaded from `chrome.storage.local`
-- `summary`: Generated summary object (includes videoId, title, content, timestamp)
-- `loading`: Boolean for async operations
-- `error`: String for error messages
-- `showSettings`: Boolean to control settings modal visibility
+No external state library - popup state is in `App.tsx` using React hooks:
+- `settings`: API keys loaded from and persisted to `chrome.storage.local`
+- `summary`: Summary for the active video (includes `videoId`, title, content, timestamp, `viewedByUser`)
+- `loading` / `loadingMessage`: Progress indicators driven by background messages
+- `error`: String for error messages derived from structured error codes
+- `showSettings`, `isExpanded`, `isYouTubeVideo`: Local UI state
+- Background worker maintains `summaryInProgress` and per-video summaries in `chrome.storage.local`
 
 ## Key Implementation Details
 
@@ -108,14 +119,15 @@ No external state library - all state in `App.tsx` using React hooks:
 
 **Critical**: The extension extracts transcripts by interacting with YouTube's native transcript UI:
 
-1. Popup sends `GET_TRANSCRIPT_DATA` message to content script with video ID
-2. Content script searches for transcript button using DOM selectors:
+1. Background worker calls `getYouTubeTranscript(videoId)` in `src/utils/youtube.ts`.
+2. That helper sends `GET_TRANSCRIPT_DATA` to the content script.
+3. Content script uses `src/content/transcriptDom.ts` to search for transcript entry points using DOM selectors:
    - `button[aria-label*="transcript" i]` or `button[aria-label*="Show transcript" i]`
    - If not found directly, looks in the "More actions" menu
-3. Clicks the transcript button programmatically
-4. Waits 1 second for transcript panel to load
-5. Extracts all `ytd-transcript-segment-renderer` elements from DOM
-6. For each segment:
+4. Clicks the transcript button (or menu item) programmatically
+5. Waits briefly for transcript panel to load (timing assumptions are encapsulated in `openTranscriptPanel`)
+6. Extracts all `ytd-transcript-segment-renderer` elements from DOM
+7. For each segment:
    - Extracts time element (class contains "time")
    - Extracts text element (class contains "segment-text")
    - Parses timestamp string (MM:SS or H:MM:SS) to seconds
@@ -128,9 +140,15 @@ No external state library - all state in `App.tsx` using React hooks:
 - No authentication or rate limiting issues
 
 **If YouTube changes their DOM structure**, the selectors may need updating. Key elements to look for:
-- Transcript button: Check aria-label attributes
+- Transcript button and menu item: Check aria-label attributes and menu items
 - Transcript segments: Look for transcript-related element tags
 - Time/text elements: Inspect class names in transcript panel
+- All selectors live in `src/content/transcriptDom.ts`; update them there first.
+
+Error codes for transcript failures are defined in `src/utils/errors.ts` (`TranscriptErrorCode`) and are surfaced to the popup via `isTranscriptError` / `parseError`. When selectors break, prefer throwing specific codes like:
+- `UI_NOT_FOUND` when the transcript UI can’t be located
+- `MENU_ITEM_NOT_FOUND` when the transcript option is missing from the menu
+- `SEGMENTS_NOT_FOUND` when the panel opens but no segments are present
 
 ### Styling with Tailwind CSS v4
 
@@ -189,12 +207,13 @@ The `base: './'` is essential - without it, CSS/JS paths will be `/assets/...` w
 
 ## File Organization
 
-- **`src/popup/App.tsx`**: Main orchestrator, handles all business logic
+- **`src/popup/App.tsx`**: Popup UI orchestrator, settings + summary viewer, talks to background worker
 - **`src/popup/components/`**: Presentational components (SettingsModal, SummaryView)
-- **`src/utils/youtube.ts`**: YouTube transcript extraction orchestration (sends message to content script)
+- **`src/utils/youtube.ts`**: YouTube transcript extraction helper (sends `GET_TRANSCRIPT_DATA` to content script)
 - **`src/utils/openai.ts`**: OpenAI Chat Completions API integration
-- **`src/content/index.ts`**: DOM manipulation (transcript extraction, video seeking, playback control)
-- **`src/background/index.ts`**: Minimal background service worker
+- **`src/content/index.ts`**: DOM manipulation (transcript extraction via `transcriptDom`, video seeking, playback control)
+- **`src/content/transcriptDom.ts`**: Centralized selectors and timing logic for the transcript panel
+- **`src/background/index.ts`**: Background orchestrator (summaries, badges, notifications, storage)
 - **`public/icons/`**: Extension icons (copied to dist/ by @crxjs)
 
 ## External Dependencies
@@ -211,3 +230,11 @@ The transcript extraction was completely rewritten to use DOM extraction instead
 - **Problem**: YouTube's timedtext API returned empty responses (200 OK with 0 bytes)
 - **New approach**: Content script clicks transcript button and extracts from DOM
 - **Result**: More reliable, no API dependencies, works as long as transcript UI exists
+
+Timedtext / Innertube-based approaches are now kept only as historical context; the production path is **DOM transcript panel first** via `src/content/transcriptDom.ts` and `GET_TRANSCRIPT_DATA`.
+
+### Background-Orchestrated Summarization (2025)
+Summarization was moved from the popup into the background worker to make long-running summaries more robust and to support multiple videos in parallel:
+- Popup sends `START_SUMMARY` and listens for progress / result messages.
+- Background worker handles transcript extraction, OpenAI calls, storage, badges, and notifications.
+- Per-tab badges (`✓`) stay visible until the user opens the popup on that tab and views the summary.

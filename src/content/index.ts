@@ -7,7 +7,10 @@ import { parseError } from '../utils/errors';
 
 console.log('Briefly content script loaded');
 
-// Listen for messages from the popup
+// Listen for messages from the background worker / popup.
+// This script is responsible for:
+// - Controlling the YouTube video element (seek/play/scroll)
+// - Driving the DOM-based transcript panel via `transcriptDom.ts`
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   console.log('[Content] Received message:', message.type);
 
@@ -58,46 +61,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return false; // Synchronous response
   }
 
-  if (message.type === 'FETCH_TRANSCRIPT') {
-    console.log('[Content] FETCH_TRANSCRIPT handler triggered');
-    console.log('[Content] Fetching transcript from:', message.url);
-
-    // Fetch transcript from content script context with proper headers
-    fetch(message.url, {
-      method: 'GET',
-      credentials: 'include', // Include cookies
-      headers: {
-        'Accept': '*/*',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Referer': window.location.href,
-        'X-YouTube-Client-Name': '1',
-        'X-YouTube-Client-Version': '2.0',
-      },
-    })
-      .then(response => {
-        console.log('[Content] Transcript fetch status:', response.status);
-        console.log('[Content] Response content-type:', response.headers.get('content-type'));
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
-        return response.text();
-      })
-      .then(transcriptXml => {
-        console.log('[Content] Transcript XML length:', transcriptXml.length);
-        if (transcriptXml.length > 0) {
-          console.log('[Content] Transcript XML preview:', transcriptXml.substring(0, 500));
-        } else {
-          console.log('[Content] WARNING: Empty transcript response');
-        }
-        sendResponse({ success: true, data: transcriptXml });
-      })
-      .catch(error => {
-        console.error('[Content] Error fetching transcript:', error);
-        sendResponse({ success: false, error: error.message });
-      });
-
-    return true; // MUST return true for async response
-  }
+  // NOTE: There used to be a `FETCH_TRANSCRIPT` handler that called YouTube's
+  // timedtext / Innertube HTTP endpoints. The current implementation uses the
+  // DOM transcript panel exclusively via `GET_TRANSCRIPT_DATA` and
+  // `transcriptDom.ts`. If you consider reintroducing HTTP-based fetching,
+  // treat it as experimental and keep DOM as the primary path.
 
   if (message.type === 'GET_TRANSCRIPT_DATA') {
     console.log('[Content] GET_TRANSCRIPT_DATA handler triggered for video:', message.videoId);
