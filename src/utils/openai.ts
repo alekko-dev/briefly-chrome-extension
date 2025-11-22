@@ -163,6 +163,7 @@ Your summaries should:
 5. Include key timestamps for important moments
 6. End with a brief conclusion
 7. Use clear headings and bullet points for readability
+8. Correct obvious misspellings of well-known brand names, product names, and technologies when you are confident about the intended name, but do not invent or guess new names that are not clearly implied by the transcript
 
 ${languageInstruction}
 
