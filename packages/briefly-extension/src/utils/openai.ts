@@ -1,4 +1,5 @@
 import { TranscriptEntry, formatTimestamp } from './youtube';
+import { createTranscriptError } from './errors';
 
 /**
  * Generates a summary of the video transcript using OpenAI's GPT API
@@ -103,7 +104,8 @@ ${transcriptText}`;
 
     if (!response.ok) {
       const errorData = await response.json();
-      throw new Error(
+      throw createTranscriptError(
+        'OPENAI_ERROR',
         errorData.error?.message || `OpenAI API error: ${response.status}`
       );
     }
@@ -112,7 +114,10 @@ ${transcriptText}`;
     const summary = data.choices?.[0]?.message?.content;
 
     if (!summary) {
-      throw new Error('No summary generated from OpenAI');
+      throw createTranscriptError(
+        'OPENAI_ERROR',
+        'No summary generated from OpenAI'
+      );
     }
 
     // Post-process: Normalize various timestamp formats to [MM:SS] or [H:MM:SS]
@@ -161,6 +166,13 @@ ${transcriptText}`;
     return processedSummary;
   } catch (error) {
     console.error('Error generating summary:', error);
-    throw error;
+    // Re-throw TranscriptErrors as-is, wrap other errors
+    if (error instanceof Error && error.name === 'TranscriptError') {
+      throw error;
+    }
+    throw createTranscriptError(
+      'OPENAI_ERROR',
+      error instanceof Error ? error.message : String(error)
+    );
   }
 }

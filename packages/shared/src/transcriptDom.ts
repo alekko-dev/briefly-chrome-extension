@@ -11,6 +11,8 @@
  * - Closing the transcript panel when needed
  */
 
+import { createTranscriptError } from '../utils/errors';
+
 // ============================================================================
 // Types & Interfaces
 // ============================================================================
@@ -283,12 +285,18 @@ export async function openTranscriptPanel(): Promise<{
         openerElement: transcriptMenuItem,
       };
     } else {
-      throw new Error('UI_NOT_FOUND: Could not find transcript option in menu');
+      throw createTranscriptError(
+        'MENU_ITEM_NOT_FOUND',
+        'Could not find transcript option in menu'
+      );
     }
   }
 
   // Neither method worked
-  throw new Error('UI_NOT_FOUND: Transcript button not found');
+  throw createTranscriptError(
+    'UI_NOT_FOUND',
+    'Transcript button not found'
+  );
 }
 
 /**
@@ -391,7 +399,10 @@ export function extractTranscriptSegments(): TranscriptEntry[] {
   const segments = document.querySelectorAll('ytd-transcript-segment-renderer');
 
   if (segments.length === 0) {
-    throw new Error('SEGMENTS_NOT_FOUND: No transcript segments found in DOM');
+    throw createTranscriptError(
+      'SEGMENTS_NOT_FOUND',
+      'No transcript segments found in DOM'
+    );
   }
 
   console.log('[TranscriptDOM] Found', segments.length, 'transcript segments');

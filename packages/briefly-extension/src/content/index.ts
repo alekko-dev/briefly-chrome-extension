@@ -3,6 +3,7 @@ import {
   closeTranscriptPanel,
   extractTranscriptSegments,
 } from './transcriptDom';
+import { parseError } from '../utils/errors';
 
 console.log('Briefly content script loaded');
 
@@ -120,14 +121,13 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       } catch (error) {
         console.error('[Content] Error extracting transcript:', error);
 
-        // Parse error message to extract error code if present
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        const code = errorMessage.split(':')[0]; // Extract code like "UI_NOT_FOUND" or "SEGMENTS_NOT_FOUND"
+        // Parse error to extract structured error code and message
+        const { code, message } = parseError(error);
 
         sendResponse({
           success: false,
           code: code,
-          error: errorMessage,
+          error: message,
         });
       }
     })();
