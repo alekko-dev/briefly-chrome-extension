@@ -1,3 +1,9 @@
+import {
+  openTranscriptPanel,
+  closeTranscriptPanel,
+  extractTranscriptSegments,
+} from './transcriptDom';
+
 console.log('Briefly content script loaded');
 
 // Listen for messages from the popup
@@ -95,295 +101,36 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type === 'GET_TRANSCRIPT_DATA') {
     console.log('[Content] GET_TRANSCRIPT_DATA handler triggered for video:', message.videoId);
 
-    // Strategy: Click the transcript button programmatically and extract from DOM
-    const transcriptPanelId = 'engagement-panel-searchable-transcript';
-    const transcriptPanelSelector = `ytd-engagement-panel-section-list-renderer[target-id="${transcriptPanelId}"]`;
+    // Use centralized transcript DOM module for all transcript operations
+    (async () => {
+      try {
+        // Step 1: Open the transcript panel (if not already open)
+        const openMethod = await openTranscriptPanel();
 
-    const getTranscriptPanel = () => document.querySelector<HTMLElement>(transcriptPanelSelector);
+        // Step 2: Extract transcript segments from the DOM
+        const transcript = extractTranscriptSegments();
 
-    const extractTranscriptFromDOM = () => {
-      return new Promise((resolve, reject) => {
-        console.log('[Content] Looking for transcript button...');
+        // Step 3: Close the panel if we opened it
+        closeTranscriptPanel(openMethod);
 
-        // If transcript is already visible, read it without changing UI state
-        const transcriptAlreadyVisible = document.querySelector('ytd-transcript-segment-renderer') !== null;
-        let openedTranscript = false;
-        let openerElement: HTMLElement | null = null;
-        let openerIsMenuItem = false;
-
-        if (transcriptAlreadyVisible) {
-          console.log('[Content] Transcript already visible, extracting without toggling panel');
-
-          // Give the DOM a moment in case YouTube is still rendering items
-          setTimeout(() => extractTranscriptSegments(resolve, reject, false, false, null), 0);
-          return;
-        }
-
-        const referencesTranscriptPanel = (element: Element | null): boolean => {
-          if (!element) {
-            return false;
-          }
-
-          const attributesToInspect = [
-            'target-id',
-            'data-target-id',
-            'aria-controls',
-            'href',
-            'data-params',
-            'js-panel-id',
-          ];
-
-          return attributesToInspect.some(attributeName => {
-            const value = element.getAttribute(attributeName);
-            return typeof value === 'string' && value.includes(transcriptPanelId);
-          });
-        };
-
-        const findClickableAncestor = (element: Element | null): HTMLElement | null => {
-          if (!element) {
-            return null;
-          }
-
-          if (element instanceof HTMLElement && element.matches('button, tp-yt-paper-item, ytd-menu-service-item-renderer, ytd-button-renderer, yt-button-shape')) {
-            return element;
-          }
-
-          return (element.closest(
-            'button, tp-yt-paper-item, ytd-menu-service-item-renderer, ytd-button-renderer, yt-button-shape',
-          ) as HTMLElement | null);
-        };
-
-        const findTranscriptButton = () => {
-          const structuralSelectors = [
-            `[aria-controls="${transcriptPanelId}"]`,
-            `[target-id="${transcriptPanelId}"]`,
-            `[data-target-id="${transcriptPanelId}"]`,
-            `[href*="${transcriptPanelId}"]`,
-            'ytd-video-description-transcript-section-renderer ytd-button-renderer button',
-            'ytd-video-description-transcript-section-renderer yt-button-shape button',
-          ];
-
-          for (const selector of structuralSelectors) {
-            const element = document.querySelector(selector);
-            if (referencesTranscriptPanel(element) || element?.closest('ytd-video-description-transcript-section-renderer')) {
-              const clickable = findClickableAncestor(element);
-              if (clickable) {
-                return clickable;
-              }
-            }
-          }
-
-          const genericButtons = document.querySelectorAll('button, yt-button-shape button, ytd-button-renderer button');
-          for (const button of Array.from(genericButtons)) {
-            if (referencesTranscriptPanel(button) || referencesTranscriptPanel(button.closest('[target-id]'))) {
-              const clickable = findClickableAncestor(button);
-              if (clickable) {
-                return clickable;
-              }
-            }
-          }
-
-          return null;
-        };
-
-        const findTranscriptMenuItem = () => {
-          const menuContainers = document.querySelectorAll('ytd-menu-popup-renderer, tp-yt-iron-dropdown');
-
-          for (const container of Array.from(menuContainers)) {
-            const items = container.querySelectorAll<HTMLElement>(
-              'tp-yt-paper-item, ytd-menu-service-item-renderer, button[role="menuitem"], a[role="menuitem"]',
-            );
-
-            for (const item of Array.from(items)) {
-              if (referencesTranscriptPanel(item)) {
-                return item;
-              }
-
-              const targetCarrier = item.closest('[target-id], [data-target-id], [aria-controls]');
-              if (referencesTranscriptPanel(targetCarrier)) {
-                return item;
-              }
-
-              const panelTarget = item.querySelector('[target-id], [data-target-id], [aria-controls], [href]');
-              if (referencesTranscriptPanel(panelTarget)) {
-                return item;
-              }
-            }
-          }
-
-          return null;
-        };
-
-        const transcriptButton = findTranscriptButton();
-
-        if (!transcriptButton) {
-          console.log('[Content] Transcript button not found, searching for it in menu...');
-
-          const moreButton =
-            document.querySelector('ytd-watch-metadata ytd-menu-renderer button[aria-haspopup="true"]') ||
-            document.querySelector('button[aria-label*="more" i][aria-haspopup="true"]');
-
-          if (moreButton) {
-            (moreButton as HTMLElement).click();
-
-            setTimeout(() => {
-              const transcriptMenuItem = findTranscriptMenuItem();
-
-              if (transcriptMenuItem) {
-                console.log('[Content] Found transcript in menu, clicking...');
-                transcriptMenuItem.click();
-
-                openedTranscript = true;
-                openerElement = transcriptMenuItem;
-                openerIsMenuItem = true;
-
-                setTimeout(
-                  () => extractTranscriptSegments(resolve, reject, openedTranscript, openerIsMenuItem, openerElement),
-                  1000,
-                );
-              } else {
-                reject(new Error('Could not find transcript option in menu'));
-              }
-            }, 500);
-          } else {
-            reject(new Error('Transcript button not found'));
-          }
-        } else {
-          console.log('[Content] Found transcript button, clicking...');
-          transcriptButton.click();
-
-          openedTranscript = true;
-          openerElement = transcriptButton;
-          openerIsMenuItem = transcriptButton.closest('ytd-menu-popup-renderer') !== null;
-
-          setTimeout(
-            () => extractTranscriptSegments(resolve, reject, openedTranscript, openerIsMenuItem, openerElement),
-            1000,
-          );
-        }
-      });
-    };
-
-    const extractTranscriptSegments = (
-      resolve: (value: any) => void,
-      reject: (reason: any) => void,
-      shouldCloseAfter: boolean,
-      openerIsMenuItem: boolean,
-      openerElement: HTMLElement | null,
-    ) => {
-      console.log('[Content] Extracting transcript segments from DOM...');
-
-      // Find transcript segments in the panel
-      const segments = document.querySelectorAll('ytd-transcript-segment-renderer');
-
-      if (segments.length === 0) {
-        reject(new Error('No transcript segments found in DOM'));
-        return;
-      }
-
-      console.log('[Content] Found', segments.length, 'transcript segments');
-
-      const transcript = Array.from(segments).map(segment => {
-        const timeElement = segment.querySelector('[class*="time"]');
-        const textElement = segment.querySelector('[class*="segment-text"]');
-
-        const timeText = timeElement?.textContent?.trim() || '0:00';
-        const text = textElement?.textContent?.trim() || '';
-
-        // Parse time string (format: "MM:SS" or "H:MM:SS")
-        const timeParts = timeText.split(':').map(Number);
-        let seconds = 0;
-        if (timeParts.length === 2) {
-          seconds = timeParts[0] * 60 + timeParts[1];
-        } else if (timeParts.length === 3) {
-          seconds = timeParts[0] * 3600 + timeParts[1] * 60 + timeParts[2];
-        }
-
-        return {
-          text,
-          start: seconds,
-          duration: 0, // We don't have duration from DOM, but it's not critical
-        };
-      });
-
-      if (shouldCloseAfter) {
-        try {
-          const findPanelCloseControl = () => {
-            const panel = getTranscriptPanel();
-
-            if (!panel) {
-              return null;
-            }
-
-            // Prefer the explicit close button in the engagement panel header
-            const explicitCloseButton = panel.querySelector<HTMLElement>(
-              '#visibility-button ytd-button-renderer button',
-            );
-            if (explicitCloseButton) {
-              return explicitCloseButton;
-            }
-
-            const header = panel.querySelector<HTMLElement>('ytd-transcript-header-renderer, #header');
-
-            const structuralSelectors = [
-              '#close-button',
-              '#dismiss-button',
-              '#visibility-button button',
-              '#visibility-button ytd-button-renderer button',
-              'yt-icon-button#close-button',
-              'tp-yt-paper-icon-button#close-button',
-              'yt-icon-button[aria-haspopup="false"]',
-              'tp-yt-paper-icon-button[aria-haspopup="false"]',
-              'button[aria-haspopup="false"]',
-            ];
-
-            for (const selector of structuralSelectors) {
-              const candidate = (header || panel).querySelector<HTMLElement>(selector);
-              if (candidate) {
-                return candidate;
-              }
-            }
-
-            const fallbackButton = header?.querySelector<HTMLElement>('yt-icon-button, tp-yt-paper-icon-button, button');
-            if (fallbackButton) {
-              return fallbackButton;
-            }
-
-            return null;
-          };
-
-          const closeControl = findPanelCloseControl();
-          const transcriptContainer = getTranscriptPanel();
-
-          if (closeControl) {
-            console.log('[Content] Closing transcript panel via structural close control');
-            closeControl.click();
-          } else if (!openerIsMenuItem && openerElement) {
-            console.log('[Content] Closing transcript panel via opener element');
-            openerElement.click();
-          } else if (transcriptContainer) {
-            console.log('[Content] Hiding transcript container element');
-            transcriptContainer.style.display = 'none';
-          } else {
-            console.log('[Content] No close control found for transcript panel');
-          }
-        } catch (closeError) {
-          console.warn('[Content] Failed to close transcript panel:', closeError);
-        }
-      }
-
-      console.log('[Content] Successfully extracted', transcript.length, 'entries');
-      resolve(transcript);
-    };
-
-    extractTranscriptFromDOM()
-      .then((transcript: any) => {
+        // Step 4: Send success response
+        console.log('[Content] Successfully extracted', transcript.length, 'entries');
         sendResponse({ success: true, data: transcript });
-      })
-      .catch(error => {
+
+      } catch (error) {
         console.error('[Content] Error extracting transcript:', error);
-        sendResponse({ success: false, error: error.message });
-      });
+
+        // Parse error message to extract error code if present
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        const code = errorMessage.split(':')[0]; // Extract code like "UI_NOT_FOUND" or "SEGMENTS_NOT_FOUND"
+
+        sendResponse({
+          success: false,
+          code: code,
+          error: errorMessage,
+        });
+      }
+    })();
 
     return true; // Keep channel open for async response
   }
