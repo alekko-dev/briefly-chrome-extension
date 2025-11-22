@@ -1,14 +1,13 @@
 import { useState, useEffect } from 'react';
 import SettingsModal from './components/SettingsModal';
 import SummaryView from './components/SummaryView';
-import { getYouTubeTranscript } from '../utils/youtube';
-import { generateSummary } from '../utils/openai';
-import { isTranscriptError, type TranscriptErrorCode } from '../utils/errors';
+import { type TranscriptErrorCode } from '../utils/errors';
 
 interface Settings {
   youtubeApiKey: string;
   openaiApiKey: string;
   comfortableLanguages: string[];
+  enableNotifications: boolean;
 }
 
 interface Summary {
@@ -16,6 +15,7 @@ interface Summary {
   videoTitle: string;
   content: string;
   timestamp: number;
+  viewedByUser?: boolean;
 }
 
 /**
@@ -51,44 +51,75 @@ function App() {
     youtubeApiKey: '',
     openaiApiKey: '',
     comfortableLanguages: [],
+    enableNotifications: true, // Default to enabled
   });
   const [summary, setSummary] = useState<Summary | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loadingMessage, setLoadingMessage] = useState<string>('Generating Summary...');
   const [error, setError] = useState<string | null>(null);
   const [isYouTubeVideo, setIsYouTubeVideo] = useState<boolean | null>(null);
   const [isExpanded, setIsExpanded] = useState(false);
 
   useEffect(() => {
-    // Load settings and summary from chrome.storage
+    // Load settings, summary, and in-progress state from chrome.storage
     chrome.storage.local.get(
-      ['youtubeApiKey', 'openaiApiKey', 'comfortableLanguages', 'summary'],
+      ['youtubeApiKey', 'openaiApiKey', 'comfortableLanguages', 'enableNotifications', 'summaryInProgress'],
       (result) => {
-        if (result.youtubeApiKey || result.openaiApiKey || result.comfortableLanguages) {
+        if (result.youtubeApiKey || result.openaiApiKey || result.comfortableLanguages || result.enableNotifications !== undefined) {
           setSettings({
             youtubeApiKey: result.youtubeApiKey || '',
             openaiApiKey: result.openaiApiKey || '',
             comfortableLanguages: Array.isArray(result.comfortableLanguages)
               ? result.comfortableLanguages
               : [],
+            enableNotifications: result.enableNotifications !== undefined ? result.enableNotifications : true,
           });
         }
 
-        // Load stored summary and check if it matches current video
-        if (result.summary) {
-          chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
-            const videoId = tab.url?.includes('youtube.com/watch')
-              ? new URL(tab.url).searchParams.get('v')
-              : null;
+        chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
+          const videoId = tab.url?.includes('youtube.com/watch')
+            ? new URL(tab.url).searchParams.get('v')
+            : null;
 
-            // Only load summary if it matches the current video
-            if (videoId && result.summary.videoId === videoId) {
-              setSummary(result.summary);
-            } else {
-              // Clear stale summary from storage
-              chrome.storage.local.remove('summary');
+          if (!videoId) {
+            return;
+          }
+
+          // Check if there's a summary generation in progress
+          if (result.summaryInProgress && videoId === result.summaryInProgress.videoId) {
+            setLoading(true);
+            const stage = result.summaryInProgress.stage;
+            setLoadingMessage(
+              stage === 'extracting_transcript'
+                ? 'Extracting transcript...'
+                : 'Generating summary with AI...'
+            );
+          }
+
+          // Load summary for this specific video
+          chrome.storage.local.get([`summary-${videoId}`], (summaryResult) => {
+            const videoSummary = summaryResult[`summary-${videoId}`];
+            if (videoSummary) {
+              setSummary(videoSummary);
+              setLoading(false);
+
+              // Clear the success badge only when user views the summary for the first time
+              if (!videoSummary.viewedByUser && tab.id) {
+                // Mark as viewed
+                const updatedSummary = { ...videoSummary, viewedByUser: true };
+                chrome.storage.local.set({
+                  [`summary-${videoId}`]: updatedSummary,
+                });
+
+                // Clear the badge
+                chrome.runtime.sendMessage({
+                  type: 'CLEAR_BADGE',
+                  tabId: tab.id,
+                });
+              }
             }
           });
-        }
+        });
       }
     );
   }, []);
@@ -115,12 +146,58 @@ function App() {
     html.style.height = height;
   }, [isExpanded]);
 
+  // Listen for messages from background worker
+  useEffect(() => {
+    const messageListener = (message: any) => {
+      console.log('[Popup] Received message from background:', message.type);
+
+      if (message.type === 'SUMMARY_PROGRESS') {
+        setLoading(true);
+        setError(null);
+        setLoadingMessage(message.message);
+      }
+
+      if (message.type === 'SUMMARY_DONE') {
+        setLoading(false);
+        setError(null);
+
+        const newSummary = {
+          videoId: message.videoId,
+          videoTitle: message.videoTitle,
+          content: message.summary,
+          timestamp: Date.now(),
+        };
+
+        setSummary(newSummary);
+      }
+
+      if (message.type === 'SUMMARY_ERROR') {
+        setLoading(false);
+
+        // Map error code to user-friendly message if available
+        if (message.code) {
+          setError(getErrorMessage(message.code as TranscriptErrorCode, message.error));
+        } else {
+          setError(message.error);
+        }
+      }
+    };
+
+    chrome.runtime.onMessage.addListener(messageListener);
+
+    // Cleanup listener on unmount
+    return () => {
+      chrome.runtime.onMessage.removeListener(messageListener);
+    };
+  }, []);
+
   const handleSaveSettings = (newSettings: Settings) => {
     setSettings(newSettings);
     chrome.storage.local.set({
       youtubeApiKey: newSettings.youtubeApiKey,
       openaiApiKey: newSettings.openaiApiKey,
       comfortableLanguages: newSettings.comfortableLanguages,
+      enableNotifications: newSettings.enableNotifications,
     });
     setShowSettings(false);
   };
@@ -128,11 +205,13 @@ function App() {
   const handleSummarize = async () => {
     try {
       setLoading(true);
+      setLoadingMessage('Starting...');
       setError(null);
 
       if (!settings.openaiApiKey) {
         setError('Please configure your OpenAI API key in settings');
         setShowSettings(true);
+        setLoading(false);
         return;
       }
 
@@ -141,20 +220,14 @@ function App() {
 
       if (!tab.url?.includes('youtube.com/watch')) {
         setError('Please open a YouTube video page');
+        setLoading(false);
         return;
       }
 
       const videoId = new URL(tab.url).searchParams.get('v');
       if (!videoId) {
         setError('Could not extract video ID from URL');
-        return;
-      }
-
-      // Extract transcript
-      const transcript = await getYouTubeTranscript(videoId);
-
-      if (!transcript || transcript.length === 0) {
-        setError('Could not extract transcript from this video. The video may not have captions available.');
+        setLoading(false);
         return;
       }
 
@@ -162,33 +235,23 @@ function App() {
         ?.map((lang) => lang.trim())
         .filter((lang) => lang.length > 0);
 
-      // Generate summary using OpenAI
-      const summaryContent = await generateSummary(transcript, settings.openaiApiKey, {
+      // Send START_SUMMARY message to background worker
+      // The background worker will handle the entire process and send updates
+      chrome.runtime.sendMessage({
+        type: 'START_SUMMARY',
+        videoId,
+        videoTitle: tab.title || 'YouTube Video',
+        tabId: tab.id,
+        openaiApiKey: settings.openaiApiKey,
         comfortableLanguages,
       });
 
-      const newSummary = {
-        videoId,
-        videoTitle: tab.title || 'YouTube Video',
-        content: summaryContent,
-        timestamp: Date.now(),
-      };
-
-      setSummary(newSummary);
-
-      // Persist summary to chrome.storage
-      chrome.storage.local.set({ summary: newSummary });
+      // UI updates will come from background message listener
+      // Loading state will be updated by SUMMARY_PROGRESS/DONE/ERROR messages
 
     } catch (err) {
-      console.error('Error generating summary:', err);
-
-      // Map transcript errors to user-friendly messages
-      if (isTranscriptError(err)) {
-        setError(getErrorMessage(err.code, err.message));
-      } else {
-        setError(err instanceof Error ? err.message : 'An error occurred while generating the summary');
-      }
-    } finally {
+      console.error('Error starting summary:', err);
+      setError(err instanceof Error ? err.message : 'An error occurred while starting the summary');
       setLoading(false);
     }
   };
@@ -285,7 +348,7 @@ function App() {
                     strokeDashoffset="60"
                   />
                 </svg>
-                <span>Generating Summary...</span>
+                <span>{loadingMessage}</span>
               </span>
             ) : (
               'Summarize This Video'
@@ -314,7 +377,15 @@ function App() {
             onTimestampClick={handleTimestampClick}
             onNewSummary={() => {
               setSummary(null);
-              chrome.storage.local.remove('summary');
+              // Clear summary for current video
+              chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
+                const videoId = tab.url?.includes('youtube.com/watch')
+                  ? new URL(tab.url).searchParams.get('v')
+                  : null;
+                if (videoId) {
+                  chrome.storage.local.remove(`summary-${videoId}`);
+                }
+              });
             }}
           />
         )}

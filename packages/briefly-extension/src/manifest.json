@@ -11,7 +11,7 @@
       "128": "icons/icon128.png"
     }
   },
-  "permissions": ["activeTab", "scripting", "storage", "windows"],
+  "permissions": ["activeTab", "scripting", "storage", "windows", "notifications"],
   "host_permissions": [
     "https://www.youtube.com/*",
     "https://api.openai.com/*"
