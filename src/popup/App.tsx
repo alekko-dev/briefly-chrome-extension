@@ -3,6 +3,7 @@ import SettingsModal from './components/SettingsModal';
 import SummaryView from './components/SummaryView';
 import { getYouTubeTranscript } from '../utils/youtube';
 import { generateSummary } from '../utils/openai';
+import { isTranscriptError, type TranscriptErrorCode } from '../utils/errors';
 
 interface Settings {
   youtubeApiKey: string;
@@ -15,6 +16,33 @@ interface Summary {
   videoTitle: string;
   content: string;
   timestamp: number;
+}
+
+/**
+ * Map error codes to user-friendly messages
+ */
+function getErrorMessage(code: TranscriptErrorCode, originalMessage: string): string {
+  switch (code) {
+    case 'NO_TRANSCRIPT':
+      return "This video doesn't appear to have a YouTube transcript. The video may not have captions available.";
+
+    case 'UI_NOT_FOUND':
+    case 'MENU_ITEM_NOT_FOUND':
+      return "YouTube's transcript interface couldn't be found. Briefly may need an update to support this version of YouTube.";
+
+    case 'SEGMENTS_NOT_FOUND':
+      return "The transcript panel opened, but no transcript segments were found. This may be a YouTube bug or layout change.";
+
+    case 'PAGE_NOT_READY':
+      return "The YouTube page isn't ready yet. Please wait a moment and try again.";
+
+    case 'OPENAI_ERROR':
+      return `There was a problem generating the summary with OpenAI: ${originalMessage}`;
+
+    case 'UNKNOWN':
+    default:
+      return `An unexpected error occurred: ${originalMessage}`;
+  }
 }
 
 function App() {
@@ -153,7 +181,13 @@ function App() {
 
     } catch (err) {
       console.error('Error generating summary:', err);
-      setError(err instanceof Error ? err.message : 'An error occurred while generating the summary');
+
+      // Map transcript errors to user-friendly messages
+      if (isTranscriptError(err)) {
+        setError(getErrorMessage(err.code, err.message));
+      } else {
+        setError(err instanceof Error ? err.message : 'An error occurred while generating the summary');
+      }
     } finally {
       setLoading(false);
     }

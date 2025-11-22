@@ -1,3 +1,5 @@
+import { createTranscriptError, type TranscriptErrorCode } from './errors';
+
 export interface TranscriptEntry {
   text: string;
   start: number;
@@ -66,7 +68,10 @@ async function fetchTimedTextTranscript(videoId: string): Promise<TranscriptEntr
             console.log('[Transcript] Received transcript data, entries:', response.data?.length);
             resolve(response.data);
           } else {
-            reject(new Error(response.error || 'Failed to get transcript from content script'));
+            // Preserve error code from content script if available
+            const errorCode = (response.code as TranscriptErrorCode) || 'UNKNOWN';
+            const errorMessage = response.error || 'Failed to get transcript from content script';
+            reject(createTranscriptError(errorCode, errorMessage));
           }
         }
       );
