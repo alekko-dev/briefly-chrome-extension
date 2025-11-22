@@ -1,4 +1,4 @@
-import { TranscriptEntry, formatTimestamp } from './youtube';
+import { TranscriptEntry, formatTimestamp, type VideoChapter } from './youtube';
 import { createTranscriptError } from './errors';
 import { getLanguageNameFromCode } from './languages';
 
@@ -7,6 +7,8 @@ import { getLanguageNameFromCode } from './languages';
  */
 interface GenerateSummaryOptions {
   comfortableLanguages?: string[];
+  videoTitle?: string;
+  chapters?: VideoChapter[];
 }
 
 interface DetectedLanguage {
@@ -118,6 +120,20 @@ export async function generateSummary(
       .map((entry) => `[${formatTimestamp(entry.start)}] ${entry.text}`)
       .join('\n');
 
+    // Optional: format chapters (if available) to help structure the summary
+    let chaptersBlock = '';
+    if (options?.chapters && options.chapters.length > 0) {
+      const formattedChapters = options.chapters
+        .map((chapter) => `- [${formatTimestamp(chapter.start)}] ${chapter.title}`)
+        .join('\n');
+
+      chaptersBlock = `Here are the video chapters. Use them as a guide for structuring the summary, but you may merge or split sections when it improves clarity:
+
+${formattedChapters}
+
+`;
+    }
+
     // Step 1: Detect transcript language with a dedicated call
     const detectedLanguage = await detectTranscriptLanguage(transcriptText, apiKey);
 
@@ -163,7 +179,8 @@ Your summaries should:
 5. Include key timestamps for important moments
 6. End with a brief conclusion
 7. Use clear headings and bullet points for readability
-8. Correct obvious misspellings of well-known brand names, product names, and technologies when you are confident about the intended name, but do not invent or guess new names that are not clearly implied by the transcript
+8. When chapter information is provided, use it as a scaffold for structuring the summary (section headings can align with chapters when it makes sense), but feel free to merge or split chapters if it leads to a clearer explanation.
+9. Correct obvious misspellings of well-known brand names, product names, and technologies when you are confident about the intended name, but do not invent or guess new names that are not clearly implied by the transcript
 
 ${languageInstruction}
 
@@ -186,8 +203,13 @@ INCORRECT examples:
 ✗ [12:34 - 15:20] Topic discussed
 ✗ At 12:34 the speaker mentions...`;
 
-    const userPrompt = `Please create a comprehensive summary of this YouTube video transcript. Include important timestamps for key moments:
+    const titleLine = options?.videoTitle
+      ? `Video title: ${options.videoTitle}\n\n`
+      : '';
 
+    const userPrompt = `${titleLine}${chaptersBlock}Please create a comprehensive summary of this YouTube video transcript. Include important timestamps for key moments:
+
+Transcript:
 ${transcriptText}`;
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {

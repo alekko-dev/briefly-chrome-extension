@@ -6,6 +6,16 @@ export interface TranscriptEntry {
   duration: number;
 }
 
+export interface VideoChapter {
+  title: string;
+  start: number;
+}
+
+export interface TranscriptWithChapters {
+  transcript: TranscriptEntry[];
+  chapters: VideoChapter[];
+}
+
 /**
  * Extracts a YouTube transcript for the active tab.
  *
@@ -15,20 +25,38 @@ export interface TranscriptEntry {
  * - Errors are returned as structured `TranscriptError` instances where possible.
  */
 export async function getYouTubeTranscript(videoId: string): Promise<TranscriptEntry[]> {
-  console.log('[YouTube] getYouTubeTranscript called with videoId:', videoId);
+  const { transcript } = await getYouTubeTranscriptWithChapters(videoId);
+  return transcript;
+}
+
+/**
+ * Extracts a YouTube transcript and any available chapters for the active tab.
+ *
+ * Returns both transcript entries and a best-effort list of chapters.
+ */
+export async function getYouTubeTranscriptWithChapters(
+  videoId: string
+): Promise<TranscriptWithChapters> {
+  console.log('[YouTube] getYouTubeTranscriptWithChapters called with videoId:', videoId);
 
   try {
-    // DOM-based transcript extraction via content script
-    const transcript = await fetchTimedTextTranscript(videoId);
-    console.log('[YouTube] DOM transcript fetch returned:', transcript?.length, 'entries');
+    // DOM-based transcript and chapter extraction via content script
+    const result = await fetchTranscriptAndChapters(videoId);
+    console.log(
+      '[YouTube] DOM transcript fetch returned:',
+      result?.transcript?.length,
+      'entries and',
+      result?.chapters?.length,
+      'chapters'
+    );
 
-    if (transcript && transcript.length > 0) {
-      return transcript;
+    if (result.transcript && result.transcript.length > 0) {
+      return result;
     }
 
     throw new Error('No transcript available for this video');
   } catch (error) {
-    console.error('[YouTube] Error fetching transcript:', error);
+    console.error('[YouTube] Error fetching transcript and chapters:', error);
     throw error;
   }
 }
@@ -45,9 +73,9 @@ export async function getYouTubeTranscript(videoId: string): Promise<TranscriptE
  * `TranscriptErrorCode` (e.g. `UI_NOT_FOUND`, `MENU_ITEM_NOT_FOUND`,
  * `SEGMENTS_NOT_FOUND`, `PAGE_NOT_READY`).
  */
-async function fetchTimedTextTranscript(videoId: string): Promise<TranscriptEntry[]> {
+async function fetchTranscriptAndChapters(videoId: string): Promise<TranscriptWithChapters> {
   try {
-    console.log('[Transcript] Starting DOM-based transcript fetch for video:', videoId);
+    console.log('[Transcript] Starting DOM-based transcript and chapter fetch for video:', videoId);
 
     // Get the active tab
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -58,7 +86,7 @@ async function fetchTimedTextTranscript(videoId: string): Promise<TranscriptEntr
 
     console.log('[Transcript] Sending GET_TRANSCRIPT_DATA message to content script');
 
-    // Ask content script to open the transcript panel and extract segments
+    // Ask content script to open the transcript panel and extract segments + chapters
     return new Promise((resolve, reject) => {
       chrome.tabs.sendMessage(
         tab.id!,
@@ -76,8 +104,22 @@ async function fetchTimedTextTranscript(videoId: string): Promise<TranscriptEntr
           }
 
           if (response.success) {
-            console.log('[Transcript] Received transcript data, entries:', response.data?.length);
-            resolve(response.data);
+            console.log(
+              '[Transcript] Received transcript data, entries:',
+              response.data?.length,
+              'chapters:',
+              response.chapters?.length ?? 0
+            );
+
+            const transcript: TranscriptEntry[] = Array.isArray(response.data)
+              ? response.data
+              : [];
+
+            const chapters: VideoChapter[] = Array.isArray(response.chapters)
+              ? response.chapters
+              : [];
+
+            resolve({ transcript, chapters });
           } else {
             // Preserve error code from content script if available
             const errorCode = (response.code as TranscriptErrorCode) || 'UNKNOWN';

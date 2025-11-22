@@ -2,6 +2,7 @@ import {
   openTranscriptPanel,
   closeTranscriptPanel,
   extractTranscriptSegments,
+  extractVideoChapters,
 } from './transcriptDom';
 import { parseError } from '../utils/errors';
 
@@ -79,12 +80,16 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         // Step 2: Extract transcript segments from the DOM
         const transcript = extractTranscriptSegments();
 
+        // Step 2b: Extract chapters (if available). This is best-effort and
+        // should not fail the whole operation if chapters cannot be found.
+        const chapters = await extractVideoChapters();
+
         // Step 3: Close the panel if we opened it
         closeTranscriptPanel(openMethod);
 
         // Step 4: Send success response
-        console.log('[Content] Successfully extracted', transcript.length, 'entries');
-        sendResponse({ success: true, data: transcript });
+        console.log('[Content] Successfully extracted', transcript.length, 'entries and', chapters.length, 'chapters');
+        sendResponse({ success: true, data: transcript, chapters });
 
       } catch (error) {
         console.error('[Content] Error extracting transcript:', error);
