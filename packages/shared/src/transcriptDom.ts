@@ -230,8 +230,10 @@ export async function openTranscriptPanel(): Promise<{
 }> {
   console.log('[TranscriptDOM] Opening transcript panel...');
 
-  // Check if transcript is already visible
-  const transcriptAlreadyVisible = document.querySelector('ytd-transcript-segment-renderer') !== null;
+  // Check if transcript is already visible in the dedicated transcript panel
+  const existingPanel = getTranscriptPanel();
+  const transcriptAlreadyVisible =
+    !!existingPanel && existingPanel.querySelector('ytd-transcript-segment-renderer') !== null;
 
   if (transcriptAlreadyVisible) {
     console.log('[TranscriptDOM] Transcript already visible, no action needed');
@@ -395,8 +397,20 @@ export function closeTranscriptPanel(openMethod: {
 export function extractTranscriptSegments(): TranscriptEntry[] {
   console.log('[TranscriptDOM] Extracting transcript segments from DOM...');
 
-  // Find all transcript segment elements
-  const segments = document.querySelectorAll('ytd-transcript-segment-renderer');
+  // Find the active transcript panel
+  const panel = getTranscriptPanel();
+
+  if (!panel) {
+    throw createTranscriptError(
+      'UI_NOT_FOUND',
+      'Transcript panel not found in DOM'
+    );
+  }
+
+  // Find all transcript segment elements within the active panel only.
+  // This avoids accidentally including hidden/duplicate panels or legacy
+  // transcript UIs that may still be present elsewhere in the document.
+  const segments = panel.querySelectorAll('ytd-transcript-segment-renderer');
 
   if (segments.length === 0) {
     throw createTranscriptError(
