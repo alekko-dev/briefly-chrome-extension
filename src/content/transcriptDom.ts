@@ -26,6 +26,11 @@ export interface TranscriptEntry {
   duration: number;   // Duration in seconds (may be 0 if not available)
 }
 
+export interface VideoChapter {
+  title: string;
+  start: number; // Start time in seconds
+}
+
 /**
  * Entry points for accessing the transcript UI
  */
@@ -451,4 +456,186 @@ export function extractTranscriptSegments(): TranscriptEntry[] {
 
   console.log('[TranscriptDOM] Successfully extracted', transcript.length, 'entries');
   return transcript;
+}
+
+/**
+ * Extract video chapters from the YouTube watch page, if available.
+ *
+ * Strategy:
+ * - Wait briefly to give YouTube a chance to render chapter UI.
+ * - Look for macro marker list items used by YouTube for chapters.
+ * - Parse each item's timestamp and title into a structured chapter object.
+ * - If no macro markers are found, fall back to parsing timestamped links
+ *   in the video description.
+ *
+ * This function is deliberately defensive: if the expected DOM structure is
+ * not found, it returns an empty array instead of throwing.
+ */
+export async function extractVideoChapters(): Promise<VideoChapter[]> {
+  try {
+    console.log('[TranscriptDOM] Attempting to extract video chapters from DOM...');
+
+    // Give the page a short moment to render chapter UI, which can appear
+    // slightly after the main watch page content.
+    await new Promise(resolve => setTimeout(resolve, 500));
+
+    // First, try the dedicated chapter list under the player/description
+    const macroMarkerItems = document.querySelectorAll<HTMLElement>(
+      'ytd-macro-markers-list-renderer ytd-macro-markers-list-item-renderer, ytd-macro-markers-list-item-renderer'
+    );
+    console.log('[TranscriptDOM] macroMarkerItems count:', macroMarkerItems.length);
+
+    const chapters: VideoChapter[] = [];
+
+    const parseTimeToSeconds = (rawTime: string): number | null => {
+      const timeParts = rawTime.split(':').map(part => Number(part.trim()));
+      if (timeParts.length < 2 || timeParts.length > 3) {
+        return null;
+      }
+      if (timeParts.some(part => Number.isNaN(part))) {
+        return null;
+      }
+      if (timeParts.length === 2) {
+        return timeParts[0] * 60 + timeParts[1];
+      }
+      return timeParts[0] * 3600 + timeParts[1] * 60 + timeParts[2];
+    };
+
+    if (macroMarkerItems && macroMarkerItems.length > 0) {
+      for (const item of Array.from(macroMarkerItems)) {
+        const timeElement =
+          item.querySelector<HTMLElement>('#time-text') ||
+          item.querySelector<HTMLElement>('[id*="time"], .time, #time');
+
+        const titleElement =
+          item.querySelector<HTMLElement>('h4.macro-markers[title]') ||
+          item.querySelector<HTMLElement>('h4.macro-markers') ||
+          item.querySelector<HTMLElement>('#primary-text') ||
+          item.querySelector<HTMLElement>('#video-title') ||
+          item.querySelector<HTMLElement>('[id*="title"]');
+
+        const rawTime = timeElement?.textContent?.trim() || '';
+        const rawTitle =
+          titleElement?.getAttribute('title')?.trim() ||
+          titleElement?.textContent?.trim() ||
+          '';
+
+        const seconds = rawTime ? parseTimeToSeconds(rawTime) : null;
+        if (seconds === null || Number.isNaN(seconds) || !rawTitle) {
+          continue;
+        }
+
+        chapters.push({
+          title: rawTitle,
+          start: seconds,
+        });
+
+        console.log(
+          '[TranscriptDOM] Parsed macro marker chapter:',
+          rawTime,
+          '-',
+          rawTitle,
+          '(' + seconds + 's)'
+        );
+      }
+    }
+
+    if (chapters.length > 0) {
+      console.log(
+        '[TranscriptDOM] Extracted',
+        chapters.length,
+        'video chapters from macro markers'
+      );
+      return chapters;
+    }
+
+    // Fallback: parse chapters from timestamped links in the description.
+    // YouTube renders description text inside a text inline expander; timestamps
+    // appear as links whose *text* is a time string like "01:03" followed by
+    // plain text with the chapter title.
+    const descriptionRoot =
+      document.querySelector<HTMLElement>('#description-inline-expander') ||
+      document.querySelector<HTMLElement>('#description') ||
+      document.querySelector<HTMLElement>('ytd-expandable-video-description-body-renderer');
+
+    if (!descriptionRoot) {
+      console.log('[TranscriptDOM] No description root found for chapter fallback');
+      return [];
+    }
+
+    const timeLinks = descriptionRoot.querySelectorAll<HTMLAnchorElement>('a');
+    console.log(
+      '[TranscriptDOM] Description-based chapter fallback: total links found:',
+      timeLinks.length
+    );
+
+    if (!timeLinks || timeLinks.length === 0) {
+      console.log('[TranscriptDOM] No timestamped links found in description for chapters');
+      return [];
+    }
+
+    const descriptionChapters: VideoChapter[] = [];
+    const timeTextPattern = /^\d{1,2}:\d{2}(?::\d{2})?$/;
+
+    for (const link of Array.from(timeLinks)) {
+      const timeText = (link.textContent || '').trim();
+      if (!timeTextPattern.test(timeText)) {
+        // Not a timestamp-style link; skip
+        continue;
+      }
+
+      const seconds = parseTimeToSeconds(timeText);
+
+      if (seconds === null || Number.isNaN(seconds)) {
+        continue;
+      }
+
+      // Try to get a human-friendly title from the surrounding text
+      let title = '';
+      const linkText = link.textContent?.trim() || '';
+
+      // Common pattern: "00:00 Intro" where link is just "00:00"
+      const parentText = link.parentElement?.textContent || '';
+      const parentTextTrimmed = parentText.trim();
+
+      if (parentTextTrimmed && parentTextTrimmed.length > timeText.length) {
+        // Remove the timestamp part from the start of the parent text
+        title = parentTextTrimmed.replace(timeText, '').trim();
+      }
+
+      if (!title) {
+        // Fallback: use any text after the link node
+        const nextSiblingText = link.nextSibling?.textContent?.trim() || '';
+        title = nextSiblingText || parentTextTrimmed || linkText;
+      }
+
+      if (!title) {
+        continue;
+      }
+
+      descriptionChapters.push({
+        title,
+        start: seconds,
+      });
+
+      console.log(
+        '[TranscriptDOM] Parsed description chapter:',
+        timeText,
+        '-',
+        title,
+        '(' + seconds + 's)'
+      );
+    }
+
+    console.log(
+      '[TranscriptDOM] Extracted',
+      descriptionChapters.length,
+      'video chapters from description fallback'
+    );
+
+    return descriptionChapters;
+  } catch (error) {
+    console.warn('[TranscriptDOM] Error while extracting video chapters:', error);
+    return [];
+  }
 }

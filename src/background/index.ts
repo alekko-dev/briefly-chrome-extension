@@ -1,4 +1,4 @@
-import { getYouTubeTranscript } from '../utils/youtube';
+import { getYouTubeTranscriptWithChapters } from '../utils/youtube';
 import { generateSummary } from '../utils/openai';
 import { isTranscriptError } from '../utils/errors';
 
@@ -144,7 +144,7 @@ async function generateSummaryInBackground(
       message: 'Extracting transcript...',
     });
 
-    const transcript = await getYouTubeTranscript(videoId);
+    const { transcript, chapters } = await getYouTubeTranscriptWithChapters(videoId);
 
     if (!transcript || transcript.length === 0) {
       throw new Error('Could not extract transcript from this video');
@@ -161,6 +161,8 @@ async function generateSummaryInBackground(
 
     const summaryContent = await generateSummary(transcript, openaiApiKey, {
       comfortableLanguages,
+      videoTitle,
+      chapters,
     });
 
     // Success! Store and broadcast
