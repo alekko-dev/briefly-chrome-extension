@@ -1,5 +1,5 @@
 import { getYouTubeTranscriptWithChapters } from '../utils/youtube';
-import { generateSummary } from '../utils/openai';
+import { answerQuestionFromTranscript, generateSummary } from '../utils/openai';
 import { isTranscriptError } from '../utils/errors';
 
 console.log('Briefly background service worker loaded');
@@ -40,7 +40,20 @@ interface ClearBadgeMessage {
   tabId: number;
 }
 
-type BackgroundMessage = StartSummaryMessage | SummaryProgressMessage | SummaryDoneMessage | SummaryErrorMessage | ClearBadgeMessage;
+interface AskFollowUpMessage {
+  type: 'ASK_FOLLOW_UP';
+  videoId: string;
+  question: string;
+  history?: { question: string; answer: string }[];
+}
+
+type BackgroundMessage =
+  | StartSummaryMessage
+  | SummaryProgressMessage
+  | SummaryDoneMessage
+  | SummaryErrorMessage
+  | ClearBadgeMessage
+  | AskFollowUpMessage;
 
 // Track active summary generation to avoid duplicates
 const activeSummaries = new Set<string>();
@@ -171,10 +184,13 @@ async function generateSummaryInBackground(
       videoTitle,
       content: summaryContent,
       timestamp: Date.now(),
+      hasTranscript: true,
     };
 
     // Store summary with videoId-specific key to support multiple summaries
     await chrome.storage.local.set({
+      [`transcript-${videoId}`]: transcript,
+      [`chapters-${videoId}`]: chapters,
       [`summary-${videoId}`]: summary,
       summary, // Also keep as latest summary for backwards compat
       summaryInProgress: null,
@@ -285,6 +301,66 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
     sendResponse({ success: true });
     return false; // Synchronous response
+  }
+
+  if (message.type === 'ASK_FOLLOW_UP') {
+    const { videoId, question, history } = message as AskFollowUpMessage;
+
+    (async () => {
+      try {
+        const keys = await chrome.storage.local.get([
+          'openaiApiKey',
+          'comfortableLanguages',
+          `transcript-${videoId}`,
+          `summary-${videoId}`,
+        ]);
+
+        const openaiApiKey = keys.openaiApiKey;
+        const transcript = keys[`transcript-${videoId}`];
+
+        if (!openaiApiKey) {
+          sendResponse({ success: false, error: 'Please add your OpenAI API key in settings.' });
+          return;
+        }
+
+        if (!Array.isArray(transcript) || transcript.length === 0) {
+          sendResponse({
+            success: false,
+            error: 'Transcript not available for this video. Generate a summary first.',
+          });
+          return;
+        }
+
+        const summaryForTitle = keys[`summary-${videoId}`];
+
+        const trimmedHistory = Array.isArray(history)
+          ? history
+              .filter(
+                (turn) =>
+                  turn &&
+                  typeof turn.question === 'string' &&
+                  typeof turn.answer === 'string'
+              )
+              .slice(0, 6)
+          : [];
+
+        const answer = await answerQuestionFromTranscript(transcript, question, openaiApiKey, {
+          videoTitle: summaryForTitle?.videoTitle,
+          comfortableLanguages: keys.comfortableLanguages,
+          videoId,
+          history: trimmedHistory,
+        });
+
+        sendResponse({ success: true, answer });
+      } catch (error) {
+        console.error('[Background] Error answering follow-up question:', error);
+        const message =
+          error instanceof Error ? error.message : 'Failed to answer the question';
+        sendResponse({ success: false, error: message });
+      }
+    })();
+
+    return true; // Keep channel open for async response
   }
 
   // Unknown message type

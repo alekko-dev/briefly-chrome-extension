@@ -15,6 +15,7 @@ interface Summary {
   videoTitle: string;
   content: string;
   timestamp: number;
+  hasTranscript?: boolean;
   viewedByUser?: boolean;
 }
 
@@ -97,16 +98,26 @@ function App() {
           }
 
           // Load summary for this specific video
-          chrome.storage.local.get([`summary-${videoId}`], (summaryResult) => {
+          chrome.storage.local.get([`summary-${videoId}`, `transcript-${videoId}`], (summaryResult) => {
             const videoSummary = summaryResult[`summary-${videoId}`];
+            const storedTranscript = summaryResult[`transcript-${videoId}`];
+            const hasTranscript = Array.isArray(storedTranscript) && storedTranscript.length > 0;
             if (videoSummary) {
-              setSummary(videoSummary);
+              const summaryWithTranscript = {
+                ...videoSummary,
+                hasTranscript: videoSummary.hasTranscript ?? hasTranscript,
+              };
+              setSummary(summaryWithTranscript);
+              // Persist hasTranscript flag for older summaries
+              chrome.storage.local.set({
+                [`summary-${videoId}`]: summaryWithTranscript,
+              });
               setLoading(false);
 
               // Clear the success badge only when user views the summary for the first time
-              if (!videoSummary.viewedByUser && tab.id) {
+              if (!summaryWithTranscript.viewedByUser && tab.id) {
                 // Mark as viewed
-                const updatedSummary = { ...videoSummary, viewedByUser: true };
+                const updatedSummary = { ...summaryWithTranscript, viewedByUser: true };
                 chrome.storage.local.set({
                   [`summary-${videoId}`]: updatedSummary,
                 });
@@ -166,6 +177,7 @@ function App() {
           videoTitle: message.videoTitle,
           content: message.summary,
           timestamp: Date.now(),
+          hasTranscript: true,
         };
 
         setSummary(newSummary);
@@ -383,7 +395,12 @@ function App() {
                   ? new URL(tab.url).searchParams.get('v')
                   : null;
                 if (videoId) {
-                  chrome.storage.local.remove(`summary-${videoId}`);
+                  chrome.storage.local.remove([
+                    `summary-${videoId}`,
+                    `transcript-${videoId}`,
+                    `chapters-${videoId}`,
+                    `qa-${videoId}`,
+                  ]);
                 }
               });
             }}
