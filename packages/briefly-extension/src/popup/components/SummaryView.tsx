@@ -6,6 +6,7 @@ interface Summary {
   videoTitle: string;
   content: string;
   timestamp: number;
+  hasTranscript?: boolean;
 }
 
 interface SummaryViewProps {
@@ -14,55 +15,195 @@ interface SummaryViewProps {
   onNewSummary: () => void;
 }
 
+interface FollowUpEntry {
+  question: string;
+  answer: string;
+}
+
 function SummaryView({ summary, onTimestampClick, onNewSummary }: SummaryViewProps) {
   const [copied, setCopied] = useState(false);
+  const [question, setQuestion] = useState('');
+  const [qaHistory, setQaHistory] = useState<FollowUpEntry[]>([]);
+  const [qaError, setQaError] = useState<string | null>(null);
+  const [asking, setAsking] = useState(false);
+
+  // Load persisted Q&A history for this video
+  React.useEffect(() => {
+    const key = `qa-${summary.videoId}`;
+    chrome.storage.local.get([key], (result) => {
+      const storedHistory = result[key];
+      if (Array.isArray(storedHistory)) {
+        setQaHistory(storedHistory);
+      }
+    });
+  }, [summary.videoId]);
+
+  // Utility: convert placeholder timestamps to real video links for display/copy
+  const convertPlaceholdersToLinks = (content: string): string => {
+    if (!summary.videoId) return content;
+
+    const toSeconds = (part1: string, part2: string, part3?: string): number => {
+      const hours = part3 ? parseInt(part1, 10) : 0;
+      const minutes = part3 ? parseInt(part2, 10) : parseInt(part1, 10);
+      const seconds = part3 ? parseInt(part3, 10) : parseInt(part2, 10);
+      return hours * 3600 + minutes * 60 + seconds;
+    };
+
+    // 1) Convert placeholder links like [2:14](#)
+    const withLinks = content.replace(
+      /\[(\d{1,2}):(\d{2})(?::(\d{2}))?\]\(#\)/g,
+      (_match, part1, part2, part3) => {
+        const totalSeconds = toSeconds(part1, part2, part3);
+        const url = `https://youtube.com/watch?v=${summary.videoId}&t=${totalSeconds}s`;
+        const label = part3 ? `${part1}:${part2}:${part3}` : `${part1}:${part2}`;
+        return `[${label}](${url})`;
+      }
+    );
+
+    // 2) Convert bare timestamps like [2:14] that aren't already links
+    const withBareConverted = withLinks.replace(
+      /\[(\d{1,2}):(\d{2})(?::(\d{2}))?\](?!\()/g,
+      (_match, part1, part2, part3) => {
+        const totalSeconds = toSeconds(part1, part2, part3);
+        const url = `https://youtube.com/watch?v=${summary.videoId}&t=${totalSeconds}s`;
+        const label = part3 ? `${part1}:${part2}:${part3}` : `${part1}:${part2}`;
+        return `[${label}](${url})`;
+      }
+    );
+
+    // 3) Remove any stray "(#)" fragments
+    return withBareConverted.replace(/\(#\)/g, '');
+  };
 
   // Parse timestamp links from markdown content (e.g., [12:34] or [1:23:45])
   const handleMarkdownClick = (e: React.MouseEvent) => {
-    const target = e.target as HTMLElement;
+    const anchor = (e.target as HTMLElement).closest('a');
+    if (!anchor) return;
 
-    if (target.tagName === 'A' && target.textContent) {
-      const match = target.textContent.match(/\[?(\d{1,2}):(\d{2})(?::(\d{2}))?\]?/);
+    const text = anchor.textContent || '';
+    const href = anchor.getAttribute('href') || '';
 
-      if (match) {
-        e.preventDefault();
-        const hours = match[3] ? parseInt(match[1]) : 0;
-        const minutes = match[3] ? parseInt(match[2]) : parseInt(match[1]);
-        const seconds = match[3] ? parseInt(match[3]) : parseInt(match[2]);
+    const parseSeconds = (label: string): number | null => {
+      const match = label.match(/(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+      if (!match) return null;
+      const hours = match[3] ? parseInt(match[1], 10) : 0;
+      const minutes = match[3] ? parseInt(match[2], 10) : parseInt(match[1], 10);
+      const seconds = match[3] ? parseInt(match[3], 10) : parseInt(match[2], 10);
+      return hours * 3600 + minutes * 60 + seconds;
+    };
 
-        const totalSeconds = hours * 3600 + minutes * 60 + seconds;
-        onTimestampClick(totalSeconds);
+    // Prefer href t= parameter
+    if (href && href !== '#' && !href.startsWith('#')) {
+      try {
+        const url = new URL(href, 'https://youtube.com');
+        const t = url.searchParams.get('t');
+        if (t) {
+          const seconds = parseInt(t.replace(/\D/g, ''), 10);
+          if (!Number.isNaN(seconds)) {
+            e.preventDefault();
+            onTimestampClick(seconds);
+            return;
+          }
+        }
+      } catch {
+        // ignore invalid URL, fall back to text
       }
+    }
+
+    const secondsFromText = parseSeconds(text);
+    if (secondsFromText !== null) {
+      e.preventDefault();
+      onTimestampClick(secondsFromText);
     }
   };
 
   const handleCopyMarkdown = async () => {
     try {
       // Convert timestamp links to YouTube URLs with escaped brackets
-      const contentWithLinks = summary.content.replace(
-        /\[(\d{1,2}):(\d{2})(?::(\d{2}))?\]\(#\)/g,
-        (match, hours_or_minutes, minutes_or_seconds, seconds) => {
-          // Parse timestamp to seconds
-          const hours = seconds ? parseInt(hours_or_minutes) : 0;
-          const minutes = seconds ? parseInt(minutes_or_seconds) : parseInt(hours_or_minutes);
-          const secs = seconds ? parseInt(seconds) : parseInt(minutes_or_seconds);
-          const totalSeconds = hours * 3600 + minutes * 60 + secs;
-
-          // Create YouTube URL with timestamp
-          const youtubeUrl = `https://youtube.com/watch?v=${summary.videoId}&t=${totalSeconds}s`;
-
-          // Extract original timestamp text and escape brackets for markdown
-          const timestamp = match.match(/\[([^\]]+)\]/)?.[1] || '';
-          return `[\\[${timestamp}\\]](${youtubeUrl})`;
-        }
+      const contentWithLinks = convertPlaceholdersToLinks(summary.content).replace(
+        /\[([^\]]+)\]\(([^)]+)\)/g,
+        (_match, timestamp, url) => `[\\[${timestamp}\\]](${url})`
       );
 
-      await navigator.clipboard.writeText(contentWithLinks);
+      const qaExport =
+        qaHistory.length > 0
+          ? `\n\n## Follow-up Questions\n${qaHistory
+              .map(
+                (entry) =>
+                  `**Q:** ${entry.question}\n**A:** ${convertPlaceholdersToLinks(entry.answer)}`
+              )
+              .join('\n\n')}`
+          : '';
+
+      await navigator.clipboard.writeText(`${contentWithLinks}${qaExport}`);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch (err) {
       console.error('Failed to copy to clipboard:', err);
     }
+  };
+
+  const handleAskQuestion = () => {
+    const trimmedQuestion = question.trim();
+
+    if (summary.hasTranscript === false) {
+      setQaError('Follow-up questions are unavailable for this summary.');
+      return;
+    }
+
+    if (!trimmedQuestion) {
+      setQaError('Enter a question about the video.');
+      return;
+    }
+
+    setAsking(true);
+    setQaError(null);
+
+    const historyToSend = qaHistory
+      .slice(0, 6)
+      .reverse(); // send oldest first for context
+
+    chrome.runtime.sendMessage(
+      {
+        type: 'ASK_FOLLOW_UP',
+        videoId: summary.videoId,
+        question: trimmedQuestion,
+        history: historyToSend,
+      },
+      (response) => {
+        setAsking(false);
+
+        if (chrome.runtime.lastError) {
+          setQaError('Unable to reach the extension. Please try again.');
+          return;
+        }
+
+        if (!response?.success) {
+          setQaError(response?.error || 'Failed to answer this question.');
+          return;
+        }
+
+        setQaHistory((prev) => {
+          const nextHistory = [
+            { question: trimmedQuestion, answer: response.answer },
+            ...prev,
+          ];
+          const key = `qa-${summary.videoId}`;
+          chrome.storage.local.set({ [key]: nextHistory });
+          return nextHistory;
+        });
+        setQuestion('');
+      }
+    );
+  };
+
+  const handleDeleteQa = (index: number) => {
+    setQaHistory((prev) => {
+      const next = prev.filter((_, i) => i !== index);
+      const key = `qa-${summary.videoId}`;
+      chrome.storage.local.set({ [key]: next });
+      return next;
+    });
   };
 
   return (
@@ -91,8 +232,98 @@ function SummaryView({ summary, onTimestampClick, onNewSummary }: SummaryViewPro
             li: ({ node, ...props }) => <li {...props} className="text-gray-700 dark:text-gray-200" />,
           }}
         >
-          {summary.content}
+          {convertPlaceholdersToLinks(summary.content)}
         </ReactMarkdown>
+      </div>
+
+      {/* Follow-up questions */}
+      <div className="bg-indigo-50 border border-indigo-100 dark:bg-slate-800/70 dark:border-slate-700 rounded-lg p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="font-semibold text-gray-900 dark:text-gray-100">Ask about this video</p>
+            <p className="text-sm text-gray-700 dark:text-gray-300">
+              Follow-up answers use the transcript and include a timestamp when possible.
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-3 flex gap-2">
+          <input
+            type="text"
+            value={question}
+            onChange={(e) => setQuestion(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !asking) {
+                handleAskQuestion();
+              }
+            }}
+            placeholder="What else do you want to know?"
+            className="flex-1 rounded-lg border border-indigo-200 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-300 dark:bg-slate-900 dark:border-slate-700 dark:text-gray-100 dark:focus:border-indigo-400"
+          />
+          <button
+            onClick={handleAskQuestion}
+            disabled={asking || summary.hasTranscript === false}
+            className="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:bg-indigo-400 transition-colors dark:bg-indigo-500 dark:hover:bg-indigo-400"
+          >
+            {asking ? 'Asking...' : 'Ask'}
+          </button>
+        </div>
+
+        {summary.hasTranscript === false && (
+          <p className="mt-2 text-sm text-amber-800 dark:text-amber-200">
+            Follow-up questions are unavailable for this summary.
+          </p>
+        )}
+
+        {qaError && (
+          <p className="mt-2 text-sm text-red-700 dark:text-red-300">{qaError}</p>
+        )}
+
+        {qaHistory.length > 0 && (
+          <div className="mt-4 space-y-3">
+            {qaHistory.map((entry, index) => (
+              <div
+                key={`${entry.question}-${index}`}
+                className="bg-white border border-indigo-100 rounded-lg p-3 shadow-sm dark:bg-slate-900 dark:border-slate-700"
+                onClick={handleMarkdownClick}
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div>
+                    <p className="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">Question</p>
+                    <p className="text-sm text-gray-900 dark:text-gray-100">{entry.question}</p>
+                  </div>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleDeleteQa(index);
+                    }}
+                    className="text-xs text-gray-500 hover:text-red-600 px-2 py-1 rounded-md hover:bg-red-50 dark:hover:bg-red-900/30"
+                    title="Delete this Q&A"
+                  >
+                    Delete
+                  </button>
+                </div>
+
+                <p className="mt-3 text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">Answer</p>
+                <div className="prose prose-sm max-w-none mt-1 dark:prose-invert">
+                  <ReactMarkdown
+                    components={{
+                      a: ({ node, ...props }) => (
+                        <a
+                          {...props}
+                          className="text-indigo-600 hover:text-indigo-700 cursor-pointer font-medium dark:text-indigo-400 dark:hover:text-indigo-300"
+                        />
+                      ),
+                      p: ({ node, ...props }) => <p {...props} className="text-gray-800 dark:text-gray-200" />,
+                    }}
+                  >
+                    {convertPlaceholdersToLinks(entry.answer)}
+                  </ReactMarkdown>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Action Buttons */}

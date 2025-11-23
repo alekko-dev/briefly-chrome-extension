@@ -16,6 +16,87 @@ interface DetectedLanguage {
   languageCode: string;
 }
 
+interface AnswerQuestionOptions {
+  videoTitle?: string;
+  comfortableLanguages?: string[];
+  videoId?: string;
+  history?: { question: string; answer: string }[];
+}
+
+const CRITICAL_TIMESTAMP_RULES = `CRITICAL TIMESTAMP FORMATTING RULES:
+- ALWAYS use square brackets: [MM:SS] or [H:MM:SS]
+- NEVER use parentheses: (MM:SS) ❌
+- NEVER use "Timestamp:" prefix ❌
+- NEVER use ranges like [MM:SS - MM:SS] ❌
+- Place timestamps at the END of the paragraph/point they reference
+
+CORRECT examples:
+✓ Introduction to the topic [0:45]
+✓ Main argument begins here [12:34]
+✓ Final thoughts and conclusion [1:23:45]
+
+INCORRECT examples:
+✗ [12:34] Topic discussed
+✗ (12:34) Topic discussed
+✗ Timestamp: 12:34
+✗ [12:34 - 15:20] Topic discussed
+✗ At 12:34 the speaker mentions...`;
+
+const TIMESTAMP_REGEX = /\[(\d{1,2}):(\d{2})(?::(\d{2}))?\]/g;
+
+function normalizeTimestampFormats(text: string): string {
+  let normalized = text;
+
+  // Convert parentheses timestamps: (12:34) -> [12:34]
+  normalized = normalized.replace(/\((\d{1,2}):(\d{2})(?::(\d{2}))?\)/g, '[$1:$2$3]');
+
+  // Convert "Timestamp: MM:SS" -> [MM:SS]
+  normalized = normalized.replace(
+    /(?:Timestamp|Time|At):\s*(\d{1,2}):(\d{2})(?::(\d{2}))?/gi,
+    '[$1:$2$3]'
+  );
+
+  // Convert timestamp ranges to just the first timestamp: [12:34 - 15:20] -> [12:34]
+  normalized = normalized.replace(
+    /\[(\d{1,2}):(\d{2})(?::(\d{2}))?\s*-\s*\d{1,2}:\d{2}(?::\d{2})?\]/g,
+    '[$1:$2$3]'
+  );
+
+  // Convert "At MM:SS" -> [MM:SS]
+  normalized = normalized.replace(/\bAt\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\b/gi, '[$1:$2$3]');
+
+  // Clean up malformed brackets (e.g., [:] from replacements with undefined groups)
+  normalized = normalized.replace(/\[(\d{1,2}):(\d{2}):?\]/g, '[$1:$2]');
+  normalized = normalized.replace(/\[(\d{1,2}):(\d{2}):(\d{2})\]/g, '[$1:$2:$3]');
+
+  return normalized;
+}
+
+function linkifyTimestamps(
+  text: string,
+  options?: { videoId?: string; fallbackHref?: string }
+): string {
+  const { videoId, fallbackHref } = options ?? {};
+
+  return text.replace(TIMESTAMP_REGEX, (_match: string, part1: string, part2: string, part3?: string) => {
+    const timestampText = part3 !== undefined ? `${part1}:${part2}:${part3}` : `${part1}:${part2}`;
+
+    if (videoId) {
+      const parts = timestampText.split(':').map(Number);
+      const seconds =
+        parts.length === 3 ? parts[0] * 3600 + parts[1] * 60 + parts[2] : parts[0] * 60 + parts[1];
+      const url = `https://youtube.com/watch?v=${videoId}&t=${seconds}s`;
+      return `[${timestampText}](${url})`;
+    }
+
+    if (fallbackHref) {
+      return `[${timestampText}](${fallbackHref})`;
+    }
+
+    return `[${timestampText}]`;
+  });
+}
+
 async function detectTranscriptLanguage(
   transcriptText: string,
   apiKey: string
@@ -184,24 +265,7 @@ Your summaries should:
 
 ${languageInstruction}
 
-CRITICAL TIMESTAMP FORMATTING RULES:
-- ALWAYS use square brackets: [MM:SS] or [H:MM:SS]
-- NEVER use parentheses: (MM:SS) ❌
-- NEVER use "Timestamp:" prefix ❌
-- NEVER use ranges like [MM:SS - MM:SS] ❌
-- Place timestamps at the END of the paragraph/point they reference
-
-CORRECT examples:
-✓ Introduction to the topic [0:45]
-✓ Main argument begins here [12:34]
-✓ Final thoughts and conclusion [1:23:45]
-
-INCORRECT examples:
-✗ [12:34] Topic discussed
-✗ (12:34) Topic discussed
-✗ Timestamp: 12:34
-✗ [12:34 - 15:20] Topic discussed
-✗ At 12:34 the speaker mentions...`;
+${CRITICAL_TIMESTAMP_RULES}`;
 
     const titleLine = options?.videoTitle
       ? `Video title: ${options.videoTitle}\n\n`
@@ -247,53 +311,128 @@ ${transcriptText}`;
       );
     }
 
-    // Post-process: Normalize various timestamp formats to [MM:SS] or [H:MM:SS]
-    let processedSummary = summary;
-
-    // 1. Convert parentheses timestamps: (12:34) -> [12:34]
-    processedSummary = processedSummary.replace(
-      /\((\d{1,2}):(\d{2})(?::(\d{2}))?\)/g,
-      '[$1:$2$3]'
-    );
-
-    // 2. Convert "Timestamp: MM:SS" -> [MM:SS]
-    processedSummary = processedSummary.replace(
-      /(?:Timestamp|Time|At):\s*(\d{1,2}):(\d{2})(?::(\d{2}))?/gi,
-      '[$1:$2$3]'
-    );
-
-    // 3. Convert timestamp ranges to just the first timestamp: [12:34 - 15:20] -> [12:34]
-    processedSummary = processedSummary.replace(
-      /\[(\d{1,2}):(\d{2})(?::(\d{2}))?\s*-\s*\d{1,2}:\d{2}(?::\d{2})?\]/g,
-      '[$1:$2$3]'
-    );
-
-    // 4. Convert "At MM:SS" -> [MM:SS]
-    processedSummary = processedSummary.replace(
-      /\bAt\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\b/gi,
-      '[$1:$2$3]'
-    );
-
-    // 5. Clean up any malformed brackets (e.g., [:] from replacements with undefined groups)
-    processedSummary = processedSummary.replace(
-      /\[(\d{1,2}):(\d{2}):?\]/g,
-      '[$1:$2]'
-    );
-    processedSummary = processedSummary.replace(
-      /\[(\d{1,2}):(\d{2}):(\d{2})\]/g,
-      '[$1:$2:$3]'
-    );
-
-    // 6. Convert all properly formatted timestamps into markdown links
-    processedSummary = processedSummary.replace(
-      /\[(\d{1,2}):(\d{2})(?::(\d{2}))?\]/g,
-      (match: string) => `${match}(#)`
-    );
+    const processedSummary = linkifyTimestamps(normalizeTimestampFormats(summary), { fallbackHref: '#' });
 
     return processedSummary;
   } catch (error) {
     console.error('Error generating summary:', error);
     // Re-throw TranscriptErrors as-is, wrap other errors
+    if (error instanceof Error && error.name === 'TranscriptError') {
+      throw error;
+    }
+    throw createTranscriptError(
+      'OPENAI_ERROR',
+      error instanceof Error ? error.message : String(error)
+    );
+  }
+}
+
+export async function answerQuestionFromTranscript(
+  transcript: TranscriptEntry[],
+  question: string,
+  apiKey: string,
+  options?: AnswerQuestionOptions
+): Promise<string> {
+  if (!apiKey) {
+    throw createTranscriptError('OPENAI_ERROR', 'OpenAI API key is missing');
+  }
+
+  if (!question || !question.trim()) {
+    throw createTranscriptError('OPENAI_ERROR', 'Question cannot be empty');
+  }
+
+  if (!Array.isArray(transcript) || transcript.length === 0) {
+    throw createTranscriptError('OPENAI_ERROR', 'Transcript is not available for this video');
+  }
+
+  const formattedTranscript = transcript
+    .map((entry) => `[${formatTimestamp(entry.start)}] ${entry.text}`)
+    .join('\n');
+
+  const preferredLanguageCode = options?.comfortableLanguages
+    ?.map((lang) => (typeof lang === 'string' ? lang.trim() : ''))
+    .find((lang) => lang.length > 0);
+
+  const languageInstruction = preferredLanguageCode
+    ? `Always respond in ${getLanguageNameFromCode(preferredLanguageCode)}.`
+    : 'Respond in the primary language used in the transcript.';
+
+  const systemPrompt = `You answer user questions using ONLY the provided YouTube transcript.
+
+Rules:
+- Resolve pronouns or vague references using the prior Q&A history before answering.
+- Do not invent details; rely strictly on the transcript.
+- Provide concise answers (2-4 sentences).
+- When the transcript contains the answer, include the single most relevant timestamp at the end using [MM:SS] or [H:MM:SS].
+- Use the prior Q&A exchanges for context (pronouns, clarifications), but never contradict the transcript.
+- If the transcript does not cover the question, respond with a single sentence phrased as a question that restates the user's request and clearly says the video doesn't explain it (e.g., "The video doesn't explain why Command A has more chances to win.").
+- Only use that question-style response when the transcript is missing the info; otherwise, answer directly.
+- If the question is off-topic or speculative, use the same question-style response noting the video doesn't cover it.
+
+${languageInstruction}
+
+${CRITICAL_TIMESTAMP_RULES}`;
+
+  const titleLine = options?.videoTitle ? `Video title: ${options.videoTitle}\n\n` : '';
+  const historyBlock =
+    options?.history && options.history.length > 0
+      ? `Relevant previous Q&A (use for context and coreference):
+${options.history
+  .map(
+    (turn, index) =>
+      `${index + 1}. Q: ${turn.question.trim()}\n   A: ${turn.answer.trim()}`
+  )
+  .join('\n')}
+
+`
+      : '';
+
+  const userPrompt = `${titleLine}${historyBlock}Question: ${question.trim()}
+
+Transcript:
+${formattedTranscript}`;
+
+  try {
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        temperature: 0.3,
+        max_tokens: 400,
+      }),
+    });
+
+    if (!response.ok) {
+      let message = `OpenAI API error: ${response.status}`;
+      try {
+        const errorData = await response.json();
+        if (errorData?.error?.message) {
+          message = errorData.error.message;
+        }
+      } catch {
+        // ignore
+      }
+      throw createTranscriptError('OPENAI_ERROR', message);
+    }
+
+    const data = await response.json();
+    const rawAnswer = data.choices?.[0]?.message?.content?.trim();
+
+    if (!rawAnswer) {
+      throw createTranscriptError('OPENAI_ERROR', 'No answer generated from OpenAI');
+    }
+
+    const normalizedAnswer = normalizeTimestampFormats(rawAnswer);
+    return linkifyTimestamps(normalizedAnswer, { videoId: options?.videoId });
+  } catch (error) {
     if (error instanceof Error && error.name === 'TranscriptError') {
       throw error;
     }
