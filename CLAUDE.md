@@ -157,6 +157,7 @@ Error codes for transcript failures are defined in `src/utils/errors.ts` (`Trans
 - **CSS Import**: Use `@import "tailwindcss";` NOT `@tailwind base/components/utilities;`
 - **No config file needed**: Tailwind v4 auto-detects source files (no `tailwind.config.js`)
 - **PostCSS plugin**: Uses `@tailwindcss/postcss` in `postcss.config.js`
+- **Typography plugin**: provides a set of `prose` classes to add beautiful typographic defaults
 
 ### Vite Build Configuration
 
