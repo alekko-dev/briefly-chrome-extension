@@ -11,6 +11,12 @@ interface GenerateSummaryOptions {
   chapters?: VideoChapter[];
 }
 
+interface GenerateArticleOptions {
+  comfortableLanguages?: string[];
+  videoTitle?: string;
+  chapters?: VideoChapter[];
+}
+
 interface DetectedLanguage {
   languageName: string;
   languageCode: string;
@@ -43,6 +49,26 @@ INCORRECT examples:
 ✗ At 12:34 the speaker mentions...`;
 
 const TIMESTAMP_REGEX = /\[(\d{1,2}):(\d{2})(?::(\d{2}))?\]/g;
+
+function formatTranscriptForPrompt(transcript: TranscriptEntry[]): string {
+  return transcript
+    .map((entry) => `[${formatTimestamp(entry.start)}] ${entry.text}`)
+    .join('\n');
+}
+
+function formatChaptersBlock(chapters?: VideoChapter[]): string {
+  if (!chapters || chapters.length === 0) return '';
+
+  const formattedChapters = chapters
+    .map((chapter) => `- [${formatTimestamp(chapter.start)}] ${chapter.title}`)
+    .join('\n');
+
+  return `Here are the video chapters. Use them as a guide for structuring the response, but you may merge or split sections when it improves clarity:
+
+${formattedChapters}
+
+`;
+}
 
 function normalizeTimestampFormats(text: string): string {
   let normalized = text;
@@ -190,65 +216,83 @@ ${transcriptText}`;
   };
 }
 
+function selectTargetLanguage(
+  detectedLanguage: DetectedLanguage,
+  comfortableLanguages?: string[]
+): { targetLanguageCode: string; targetLanguageName: string } {
+  const normalizedComfortableLanguageCodes = comfortableLanguages
+    ?.map((lang) => lang.trim())
+    .filter((lang) => lang.length > 0);
+
+  const detectedCodeLower = detectedLanguage.languageCode.toLowerCase();
+  let targetLanguageCode = detectedCodeLower;
+
+  if (normalizedComfortableLanguageCodes && normalizedComfortableLanguageCodes.length > 0) {
+    const comfortableCodesLower = normalizedComfortableLanguageCodes.map((code) =>
+      code.toLowerCase()
+    );
+
+    const detectedIsComfortable = comfortableCodesLower.includes(detectedCodeLower);
+
+    if (detectedIsComfortable) {
+      targetLanguageCode = detectedCodeLower;
+    } else {
+      targetLanguageCode = comfortableCodesLower[0];
+    }
+  }
+
+  const targetLanguageName = getLanguageNameFromCode(targetLanguageCode);
+
+  return { targetLanguageCode, targetLanguageName };
+}
+
+async function prepareTranscriptContext(
+  transcript: TranscriptEntry[],
+  apiKey: string,
+  options?: { comfortableLanguages?: string[]; videoTitle?: string; chapters?: VideoChapter[] }
+): Promise<{
+  transcriptText: string;
+  languageInstruction: string;
+  chaptersBlock: string;
+  titleLine: string;
+}> {
+  const transcriptText = formatTranscriptForPrompt(transcript);
+  const detectedLanguage = await detectTranscriptLanguage(transcriptText, apiKey);
+  const { targetLanguageName } = selectTargetLanguage(
+    detectedLanguage,
+    options?.comfortableLanguages
+  );
+
+  const languageInstruction = `LANGUAGE INSTRUCTIONS:
+- The transcript language is ${detectedLanguage.languageName} (code: ${detectedLanguage.languageCode}).
+- You MUST write the entire response in ${targetLanguageName}.
+- Do not use any language other than ${targetLanguageName}, except for proper names or code identifiers.
+- Use ${targetLanguageName} for all headings, bullet points, and timestamps.
+- If you start to respond in a different language, immediately switch back to ${targetLanguageName} and continue only in ${targetLanguageName}.`;
+
+  const chaptersBlock = formatChaptersBlock(options?.chapters);
+  const titleLine = options?.videoTitle ? `Video title: ${options.videoTitle}\n\n` : '';
+
+  return {
+    transcriptText,
+    languageInstruction,
+    chaptersBlock,
+    titleLine,
+  };
+}
+
 export async function generateSummary(
   transcript: TranscriptEntry[],
   apiKey: string,
   options?: GenerateSummaryOptions
 ): Promise<string> {
   try {
-    // Format transcript for better context
-    const transcriptText = transcript
-      .map((entry) => `[${formatTimestamp(entry.start)}] ${entry.text}`)
-      .join('\n');
-
-    // Optional: format chapters (if available) to help structure the summary
-    let chaptersBlock = '';
-    if (options?.chapters && options.chapters.length > 0) {
-      const formattedChapters = options.chapters
-        .map((chapter) => `- [${formatTimestamp(chapter.start)}] ${chapter.title}`)
-        .join('\n');
-
-      chaptersBlock = `Here are the video chapters. Use them as a guide for structuring the summary, but you may merge or split sections when it improves clarity:
-
-${formattedChapters}
-
-`;
-    }
-
-    // Step 1: Detect transcript language with a dedicated call
-    const detectedLanguage = await detectTranscriptLanguage(transcriptText, apiKey);
-
-    // Step 2: Decide which language the summary should use based on
-    // the detected language and the user's comfortableLanguages setting.
-    const normalizedComfortableLanguageCodes = options?.comfortableLanguages
-      ?.map((lang) => lang.trim())
-      .filter((lang) => lang.length > 0);
-
-    const detectedCodeLower = detectedLanguage.languageCode.toLowerCase();
-    let targetLanguageCode = detectedCodeLower;
-
-    if (normalizedComfortableLanguageCodes && normalizedComfortableLanguageCodes.length > 0) {
-      const comfortableCodesLower = normalizedComfortableLanguageCodes.map((code) =>
-        code.toLowerCase()
-      );
-
-      const detectedIsComfortable = comfortableCodesLower.includes(detectedCodeLower);
-
-      if (detectedIsComfortable) {
-        targetLanguageCode = detectedCodeLower;
-      } else {
-        targetLanguageCode = comfortableCodesLower[0];
-      }
-    }
-
-    const targetLanguageName = getLanguageNameFromCode(targetLanguageCode);
-
-    const languageInstruction = `LANGUAGE INSTRUCTIONS:
-- The transcript language is ${detectedLanguage.languageName} (code: ${detectedLanguage.languageCode}).
-- You MUST write the entire summary in ${targetLanguageName}.
-- Do not use any language other than ${targetLanguageName}, except for proper names or code identifiers.
-- Use ${targetLanguageName} for all headings, bullet points, and timestamps.
-- If you start to respond in a different language, immediately switch back to ${targetLanguageName} and continue only in ${targetLanguageName}.`;
+    const { transcriptText, languageInstruction, chaptersBlock, titleLine } =
+      await prepareTranscriptContext(transcript, apiKey, {
+        comfortableLanguages: options?.comfortableLanguages,
+        videoTitle: options?.videoTitle,
+        chapters: options?.chapters,
+      });
 
     const systemPrompt = `You are a helpful assistant that creates detailed, well-structured summaries of YouTube video transcripts.
 
@@ -266,10 +310,6 @@ Your summaries should:
 ${languageInstruction}
 
 ${CRITICAL_TIMESTAMP_RULES}`;
-
-    const titleLine = options?.videoTitle
-      ? `Video title: ${options.videoTitle}\n\n`
-      : '';
 
     const userPrompt = `${titleLine}${chaptersBlock}Please create a comprehensive summary of this YouTube video transcript. Include important timestamps for key moments:
 
@@ -317,6 +357,88 @@ ${transcriptText}`;
   } catch (error) {
     console.error('Error generating summary:', error);
     // Re-throw TranscriptErrors as-is, wrap other errors
+    if (error instanceof Error && error.name === 'TranscriptError') {
+      throw error;
+    }
+    throw createTranscriptError(
+      'OPENAI_ERROR',
+      error instanceof Error ? error.message : String(error)
+    );
+  }
+}
+
+export async function convertTranscriptToArticle(
+  transcript: TranscriptEntry[],
+  apiKey: string,
+  options?: GenerateArticleOptions
+): Promise<string> {
+  try {
+    const { transcriptText, languageInstruction, chaptersBlock, titleLine } =
+      await prepareTranscriptContext(transcript, apiKey, {
+        comfortableLanguages: options?.comfortableLanguages,
+        videoTitle: options?.videoTitle,
+        chapters: options?.chapters,
+      });
+
+    const systemPrompt = `You rewrite YouTube transcripts into readable articles while staying faithful to the original content.
+
+Article guidelines:
+1. Preserve the order and meaning of the transcript; do not invent new facts.
+2. Keep wording close to the original but edit for flow and clarity.
+3. Include timestamps for notable moments at the end of the paragraphs they relate to.
+4. Use short paragraphs and headings for readability (no bullet lists unless the transcript clearly lists items).
+5. When chapter information is provided, use it to guide sectioning, but merge or split when it makes the article clearer.
+6. Remove obvious sponsor/subscribe/promo callouts when they are clearly promotional; otherwise keep the content intact.
+7. Maintain important quotes and terminology from the transcript.
+
+${languageInstruction}
+
+${CRITICAL_TIMESTAMP_RULES}`;
+
+    const userPrompt = `${titleLine}${chaptersBlock}Turn the full transcript below into a cohesive article that stays as close to the original wording as possible while reading smoothly. Keep timestamps near the paragraphs they reference:
+
+Transcript:
+${transcriptText}`;
+
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: 'gpt-4o-mini',
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        temperature: 0.6,
+        max_tokens: 2400,
+      }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw createTranscriptError(
+        'OPENAI_ERROR',
+        errorData.error?.message || `OpenAI API error: ${response.status}`
+      );
+    }
+
+    const data = await response.json();
+    const article = data.choices?.[0]?.message?.content;
+
+    if (!article) {
+      throw createTranscriptError('OPENAI_ERROR', 'No article generated from OpenAI');
+    }
+
+    const processedArticle = linkifyTimestamps(normalizeTimestampFormats(article), {
+      fallbackHref: '#',
+    });
+
+    return processedArticle;
+  } catch (error) {
+    console.error('Error generating article:', error);
     if (error instanceof Error && error.name === 'TranscriptError') {
       throw error;
     }

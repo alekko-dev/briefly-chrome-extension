@@ -1,5 +1,5 @@
 import { getYouTubeTranscriptWithChapters } from '../utils/youtube';
-import { answerQuestionFromTranscript, generateSummary } from '../utils/openai';
+import { answerQuestionFromTranscript, convertTranscriptToArticle, generateSummary } from '../utils/openai';
 import { isTranscriptError } from '../utils/errors';
 
 console.log('Briefly background service worker loaded');
@@ -47,13 +47,19 @@ interface AskFollowUpMessage {
   history?: { question: string; answer: string }[];
 }
 
+interface GenerateArticleMessage {
+  type: 'GENERATE_ARTICLE';
+  videoId: string;
+}
+
 type BackgroundMessage =
   | StartSummaryMessage
   | SummaryProgressMessage
   | SummaryDoneMessage
   | SummaryErrorMessage
   | ClearBadgeMessage
-  | AskFollowUpMessage;
+  | AskFollowUpMessage
+  | GenerateArticleMessage;
 
 // Track active summary generation to avoid duplicates
 const activeSummaries = new Set<string>();
@@ -361,6 +367,65 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     })();
 
     return true; // Keep channel open for async response
+  }
+
+  if (message.type === 'GENERATE_ARTICLE') {
+    const { videoId } = message as GenerateArticleMessage;
+
+    (async () => {
+      try {
+        const keys = await chrome.storage.local.get([
+          'openaiApiKey',
+          'comfortableLanguages',
+          `transcript-${videoId}`,
+          `chapters-${videoId}`,
+          `summary-${videoId}`,
+        ]);
+
+        const openaiApiKey = keys.openaiApiKey;
+        const transcript = keys[`transcript-${videoId}`];
+        const chapters = keys[`chapters-${videoId}`];
+        const summaryForTitle = keys[`summary-${videoId}`];
+
+        if (!openaiApiKey) {
+          sendResponse({ success: false, error: 'Please add your OpenAI API key in settings.' });
+          return;
+        }
+
+        if (!Array.isArray(transcript) || transcript.length === 0) {
+          sendResponse({
+            success: false,
+            error: 'Transcript not available for this video. Generate a summary first.',
+          });
+          return;
+        }
+
+        const articleContent = await convertTranscriptToArticle(transcript, openaiApiKey, {
+          comfortableLanguages: keys.comfortableLanguages,
+          videoTitle: summaryForTitle?.videoTitle,
+          chapters,
+        });
+
+        const article = {
+          videoId,
+          content: articleContent,
+          timestamp: Date.now(),
+        };
+
+        await chrome.storage.local.set({
+          [`article-${videoId}`]: article,
+        });
+
+        sendResponse({ success: true, article });
+      } catch (error) {
+        console.error('[Background] Error generating article:', error);
+        const message =
+          error instanceof Error ? error.message : 'Failed to generate article from transcript';
+        sendResponse({ success: false, error: message });
+      }
+    })();
+
+    return true;
   }
 
   // Unknown message type
