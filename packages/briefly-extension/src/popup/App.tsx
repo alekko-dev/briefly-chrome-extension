@@ -46,6 +46,9 @@ function getErrorMessage(code: TranscriptErrorCode, originalMessage: string): st
   }
 }
 
+// Prevent a stuck "in progress" state from blocking new summaries indefinitely
+const STALE_IN_PROGRESS_MS = 3 * 60 * 1000; // 3 minutes
+
 function App() {
   const [showSettings, setShowSettings] = useState(false);
   const [settings, setSettings] = useState<Settings>({
@@ -86,10 +89,23 @@ function App() {
             return;
           }
 
+          const inProgress = result.summaryInProgress;
+          const isStale =
+            inProgress &&
+            typeof inProgress.timestamp === 'number' &&
+            Date.now() - inProgress.timestamp > STALE_IN_PROGRESS_MS;
+
+          if (isStale) {
+            chrome.storage.local.set({ summaryInProgress: null });
+            if (inProgress.videoId === videoId) {
+              setError('A previous summary attempt appears to have stalled. Please try again to start a new summary.');
+            }
+          }
+
           // Check if there's a summary generation in progress
-          if (result.summaryInProgress && videoId === result.summaryInProgress.videoId) {
+          if (inProgress && !isStale && videoId === inProgress.videoId) {
             setLoading(true);
-            const stage = result.summaryInProgress.stage;
+            const stage = inProgress.stage;
             setLoadingMessage(
               stage === 'extracting_transcript'
                 ? 'Extracting transcript...'
