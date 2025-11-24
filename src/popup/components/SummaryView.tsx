@@ -452,7 +452,7 @@ function SummaryView({ summary, onTimestampClick, onNewSummary }: SummaryViewPro
 
       {/* Transcript Article */}
       <div className="bg-white p-5 rounded-lg shadow-sm border border-gray-200 dark:bg-slate-900 dark:border-slate-700">
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex prose prose-sm items-center justify-between gap-3">
           <p className="font-semibold text-gray-900 dark:text-gray-100">Turn transcript into an article</p>
           {!article && (
             <button
