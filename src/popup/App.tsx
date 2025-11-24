@@ -399,6 +399,7 @@ function App() {
                     `summary-${videoId}`,
                     `transcript-${videoId}`,
                     `chapters-${videoId}`,
+                    `article-${videoId}`,
                     `qa-${videoId}`,
                   ]);
                 }
