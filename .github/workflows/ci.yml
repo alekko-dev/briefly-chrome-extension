@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - pack-core
+  pull_request:
+
+jobs:
+  build-briefly:
+    name: Build Briefly Extension
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Get short commit SHA
+        run: echo "SHORT_SHA=${GITHUB_SHA::7}" >> $GITHUB_ENV
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Briefly extension
+        run: npm run build:briefly
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: briefly-chrome-extension-${{ env.SHORT_SHA }}
+          path: packages/briefly-extension/dist
+
+  # Future: Add build-interruptly job when interruptly-extension is created
+  # build-interruptly:
+  #   name: Build Interruptly Extension
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: Check out repository
+  #       uses: actions/checkout@v4
+  #     - name: Set up Node.js
+  #       uses: actions/setup-node@v4
+  #       with:
+  #         node-version: 20
+  #         cache: npm
+  #     - name: Install dependencies
+  #       run: npm ci
+  #     - name: Build Interruptly extension
+  #       run: npm run build:interruptly
+  #     - name: Upload build artifact
+  #       uses: actions/upload-artifact@v4
+  #       with:
+  #         name: interruptly-chrome-extension-${{ env.SHORT_SHA }}
+  #         path: packages/interruptly-extension/dist
