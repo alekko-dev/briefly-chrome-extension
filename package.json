@@ -1,0 +1,21 @@
+{
+  "name": "briefly-extensions",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Monorepo for Briefly Chrome extensions",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:briefly": "npm run dev --workspace=briefly-extension",
+    "dev:interruptly": "npm run dev --workspace=interruptly-extension",
+    "build:briefly": "npm run build --workspace=briefly-extension",
+    "build:interruptly": "npm run build --workspace=interruptly-extension",
+    "build:all": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "clean": "npm run clean --workspaces --if-present"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}

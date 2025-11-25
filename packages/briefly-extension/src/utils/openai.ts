@@ -1,5 +1,5 @@
-import { TranscriptEntry, formatTimestamp, type VideoChapter } from './youtube';
-import { createTranscriptError } from './errors';
+import { type TranscriptEntry, formatTimestamp, type VideoChapter } from '@briefly/shared/messaging';
+import { createTranscriptError } from '@briefly/shared/errors';
 import { getLanguageNameFromCode } from './languages';
 
 /**

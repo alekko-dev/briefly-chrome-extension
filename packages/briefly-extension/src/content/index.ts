@@ -3,8 +3,8 @@ import {
   closeTranscriptPanel,
   extractTranscriptSegments,
   extractVideoChapters,
-} from './transcriptDom';
-import { parseError } from '../utils/errors';
+} from '@briefly/shared/transcriptDom';
+import { parseError } from '@briefly/shared/errors';
 
 console.log('Briefly content script loaded');
 

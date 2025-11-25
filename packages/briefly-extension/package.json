@@ -1,5 +1,5 @@
 {
-  "name": "briefly-chrome-extension",
+  "name": "briefly-extension",
   "version": "0.1.0",
   "description": "AI-powered video summarizer for YouTube videos",
   "type": "module",
@@ -26,6 +26,7 @@
     "vite": "^7.2.2"
   },
   "dependencies": {
+    "@briefly/shared": "*",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-markdown": "^10.1.0"

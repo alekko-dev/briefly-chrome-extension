@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import SettingsModal from './components/SettingsModal';
 import SummaryView from './components/SummaryView';
-import { type TranscriptErrorCode } from '../utils/errors';
+import { type TranscriptErrorCode } from '@briefly/shared/errors';
 
 interface Settings {
   youtubeApiKey: string;
@@ -68,15 +68,15 @@ function App() {
     // Load settings, summary, and in-progress state from chrome.storage
     chrome.storage.local.get(
       ['youtubeApiKey', 'openaiApiKey', 'comfortableLanguages', 'enableNotifications', 'summaryInProgress'],
-      (result) => {
+      (result: { [key: string]: any }) => {
         if (result.youtubeApiKey || result.openaiApiKey || result.comfortableLanguages || result.enableNotifications !== undefined) {
           setSettings({
-            youtubeApiKey: result.youtubeApiKey || '',
-            openaiApiKey: result.openaiApiKey || '',
+            youtubeApiKey: (result.youtubeApiKey as string) || '',
+            openaiApiKey: (result.openaiApiKey as string) || '',
             comfortableLanguages: Array.isArray(result.comfortableLanguages)
               ? result.comfortableLanguages
               : [],
-            enableNotifications: result.enableNotifications !== undefined ? result.enableNotifications : true,
+            enableNotifications: result.enableNotifications !== undefined ? (result.enableNotifications as boolean) : true,
           });
         }
 
@@ -89,7 +89,7 @@ function App() {
             return;
           }
 
-          const inProgress = result.summaryInProgress;
+          const inProgress = result.summaryInProgress as { videoId: string; stage: string; timestamp: number } | null | undefined;
           const isStale =
             inProgress &&
             typeof inProgress.timestamp === 'number' &&
@@ -105,7 +105,7 @@ function App() {
           // Check if there's a summary generation in progress
           if (inProgress && !isStale && videoId === inProgress.videoId) {
             setLoading(true);
-            const stage = inProgress.stage;
+            const stage = inProgress.stage as 'extracting_transcript' | 'generating_summary';
             setLoadingMessage(
               stage === 'extracting_transcript'
                 ? 'Extracting transcript...'
@@ -114,12 +114,12 @@ function App() {
           }
 
           // Load summary for this specific video
-          chrome.storage.local.get([`summary-${videoId}`, `transcript-${videoId}`], (summaryResult) => {
-            const videoSummary = summaryResult[`summary-${videoId}`];
+          chrome.storage.local.get([`summary-${videoId}`, `transcript-${videoId}`], (summaryResult: { [key: string]: any }) => {
+            const videoSummary = summaryResult[`summary-${videoId}`] as Summary | undefined;
             const storedTranscript = summaryResult[`transcript-${videoId}`];
             const hasTranscript = Array.isArray(storedTranscript) && storedTranscript.length > 0;
             if (videoSummary) {
-              const summaryWithTranscript = {
+              const summaryWithTranscript: Summary = {
                 ...videoSummary,
                 hasTranscript: videoSummary.hasTranscript ?? hasTranscript,
               };

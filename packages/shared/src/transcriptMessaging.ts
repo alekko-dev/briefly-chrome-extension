@@ -1,20 +1,8 @@
 import { createTranscriptError, type TranscriptErrorCode } from './errors';
+import type { TranscriptEntry, VideoChapter, TranscriptWithChapters } from './types';
 
-export interface TranscriptEntry {
-  text: string;
-  start: number;
-  duration: number;
-}
-
-export interface VideoChapter {
-  title: string;
-  start: number;
-}
-
-export interface TranscriptWithChapters {
-  transcript: TranscriptEntry[];
-  chapters: VideoChapter[];
-}
+// Re-export types for convenience
+export type { TranscriptEntry, VideoChapter, TranscriptWithChapters };
 
 /**
  * Extracts a YouTube transcript for the active tab.

@@ -1,6 +1,6 @@
-import { getYouTubeTranscriptWithChapters } from '../utils/youtube';
+import { getYouTubeTranscriptWithChapters } from '@briefly/shared/messaging';
 import { answerQuestionFromTranscript, convertTranscriptToArticle, generateSummary } from '../utils/openai';
-import { isTranscriptError } from '../utils/errors';
+import { isTranscriptError } from '@briefly/shared/errors';
 
 console.log('Briefly background service worker loaded');
 
@@ -52,6 +52,15 @@ interface GenerateArticleMessage {
   videoId: string;
 }
 
+interface Summary {
+  videoId: string;
+  videoTitle: string;
+  content: string;
+  timestamp: number;
+  hasTranscript?: boolean;
+  viewedByUser?: boolean;
+}
+
 type BackgroundMessage =
   | StartSummaryMessage
   | SummaryProgressMessage
@@ -92,7 +101,7 @@ async function updateBadgeForTab(tabId: number): Promise<void> {
 
     const key = `summary-${videoId}`;
     const result = await chrome.storage.local.get([key]);
-    const storedSummary = result[key];
+    const storedSummary = result[key] as Summary | undefined;
 
     // If there is a summary and it hasn't been viewed yet, show the badge
     if (storedSummary && storedSummary.viewedByUser !== true) {
@@ -321,7 +330,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           `summary-${videoId}`,
         ]);
 
-        const openaiApiKey = keys.openaiApiKey;
+        const openaiApiKey = keys.openaiApiKey as string | undefined;
         const transcript = keys[`transcript-${videoId}`];
 
         if (!openaiApiKey) {
@@ -337,7 +346,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           return;
         }
 
-        const summaryForTitle = keys[`summary-${videoId}`];
+        const summaryForTitle = keys[`summary-${videoId}`] as Summary | undefined;
 
         const trimmedHistory = Array.isArray(history)
           ? history
@@ -352,7 +361,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
         const answer = await answerQuestionFromTranscript(transcript, question, openaiApiKey, {
           videoTitle: summaryForTitle?.videoTitle,
-          comfortableLanguages: keys.comfortableLanguages,
+          comfortableLanguages: keys.comfortableLanguages as string[] | undefined,
           videoId,
           history: trimmedHistory,
         });
@@ -382,10 +391,10 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
           `summary-${videoId}`,
         ]);
 
-        const openaiApiKey = keys.openaiApiKey;
+        const openaiApiKey = keys.openaiApiKey as string | undefined;
         const transcript = keys[`transcript-${videoId}`];
-        const chapters = keys[`chapters-${videoId}`];
-        const summaryForTitle = keys[`summary-${videoId}`];
+        const chapters = keys[`chapters-${videoId}`] as import('@briefly/shared/types').VideoChapter[] | undefined;
+        const summaryForTitle = keys[`summary-${videoId}`] as Summary | undefined;
 
         if (!openaiApiKey) {
           sendResponse({ success: false, error: 'Please add your OpenAI API key in settings.' });
@@ -401,7 +410,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
         }
 
         const articleContent = await convertTranscriptToArticle(transcript, openaiApiKey, {
-          comfortableLanguages: keys.comfortableLanguages,
+          comfortableLanguages: keys.comfortableLanguages as string[] | undefined,
           videoTitle: summaryForTitle?.videoTitle,
           chapters,
         });

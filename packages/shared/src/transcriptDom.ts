@@ -11,33 +11,8 @@
  * - Closing the transcript panel when needed
  */
 
-import { createTranscriptError } from '../utils/errors';
-
-// ============================================================================
-// Types & Interfaces
-// ============================================================================
-
-/**
- * Represents a single transcript entry with timestamp and text
- */
-export interface TranscriptEntry {
-  text: string;
-  start: number;      // Start time in seconds
-  duration: number;   // Duration in seconds (may be 0 if not available)
-}
-
-export interface VideoChapter {
-  title: string;
-  start: number; // Start time in seconds
-}
-
-/**
- * Entry points for accessing the transcript UI
- */
-export interface TranscriptEntryPoints {
-  transcriptButton: HTMLElement | null;  // Direct transcript button (preferred)
-  moreActionsButton: HTMLElement | null; // "More actions" menu button (fallback)
-}
+import { createTranscriptError } from './errors';
+import type { TranscriptEntry, VideoChapter, TranscriptEntryPoints } from './types';
 
 // ============================================================================
 // Constants

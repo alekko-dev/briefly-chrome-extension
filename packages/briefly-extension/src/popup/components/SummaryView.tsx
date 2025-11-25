@@ -56,8 +56,8 @@ function SummaryView({ summary, onTimestampClick, onNewSummary }: SummaryViewPro
     setArticleLoading(false);
     setArticleCopied(false);
 
-    chrome.storage.local.get([key], (result) => {
-      const storedArticle = result[key];
+    chrome.storage.local.get([key], (result: { [key: string]: any }) => {
+      const storedArticle = result[key] as Article | undefined;
       if (storedArticle?.content) {
         setArticle(storedArticle);
       }
