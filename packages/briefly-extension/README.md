@@ -25,12 +25,20 @@ To use this extension, you'll need:
 
 ### For Development
 
-1. **Install dependencies**:
+**Note**: This extension is part of a monorepo. All commands should be run from the repository root unless otherwise specified.
+
+1. **Install dependencies** (from repository root):
    ```bash
+   cd ../..  # Navigate to repository root
    npm install
    ```
 
-2. **Build the extension**:
+2. **Build the extension** (from repository root):
+   ```bash
+   npm run build:briefly
+   ```
+
+   Or, from this package directory:
    ```bash
    npm run build
    ```
@@ -39,7 +47,7 @@ To use this extension, you'll need:
    - Open Chrome and navigate to `chrome://extensions/`
    - Enable "Developer mode" (toggle in top right)
    - Click "Load unpacked"
-   - Select the `dist` folder from this project
+   - Select the `packages/briefly-extension/dist` folder from the repository root
 
 4. **Configure API keys**:
    - Click the extension icon in Chrome
@@ -50,11 +58,17 @@ To use this extension, you'll need:
 
 ### For Production
 
+From repository root:
+```bash
+npm run build:briefly
+```
+
+Or from this package directory:
 ```bash
 npm run build
 ```
 
-The production-ready extension will be in the `dist` folder. You can package this folder and distribute or publish it to the Chrome Web Store.
+The production-ready extension will be in the `packages/briefly-extension/dist` folder. You can package this folder and distribute or publish it to the Chrome Web Store.
 
 ## Usage
 
@@ -66,31 +80,50 @@ The production-ready extension will be in the `dist` folder. You can package thi
 
 ## Project Structure
 
+This extension is part of a monorepo and uses shared utilities from `@briefly/shared`.
+
 ```
-src/
-├── background/          # Background service worker
-│   └── index.ts
-├── content/             # Content script for YouTube pages
-│   └── index.ts
-├── popup/               # Extension popup UI
-│   ├── components/      # React components
-│   │   ├── SettingsModal.tsx
-│   │   └── SummaryView.tsx
-│   ├── App.tsx          # Main app component
-│   ├── index.tsx        # React entry point
-│   ├── index.html       # HTML template
-│   └── index.css        # Global styles
-├── utils/               # Utility functions
-│   ├── youtube.ts       # YouTube transcript extraction
-│   └── openai.ts        # OpenAI API integration
-├── icons/               # Extension icons
-└── manifest.json        # Chrome extension manifest
+packages/briefly-extension/
+├── src/
+│   ├── background/          # Background service worker
+│   │   └── index.ts
+│   ├── content/             # Content script for YouTube pages
+│   │   └── index.ts
+│   ├── popup/               # Extension popup UI
+│   │   ├── components/      # React components
+│   │   │   ├── SettingsModal.tsx
+│   │   │   └── SummaryView.tsx
+│   │   ├── App.tsx          # Main app component
+│   │   ├── index.tsx        # React entry point
+│   │   ├── index.html       # HTML template
+│   │   └── index.css        # Global styles
+│   ├── utils/               # Extension-specific utilities
+│   │   ├── languages.ts     # Language list
+│   │   └── openai.ts        # OpenAI API integration
+│   ├── icons/               # Extension icons
+│   └── manifest.json        # Chrome extension manifest
+│
+├── public/
+│   └── icons/               # Public extension icons
+│
+└── dist/                    # Build output (gitignored)
+
+Shared utilities (from packages/shared/):
+├── transcriptDom.ts         # YouTube DOM extraction
+├── transcriptMessaging.ts   # Chrome message passing for transcripts
+├── errors.ts                # Error types and handling
+└── types.ts                 # Shared TypeScript interfaces
 ```
 
 ## Development
 
 ### Available Scripts
 
+From repository root:
+- `npm run dev:briefly` - Start development server with hot reload
+- `npm run build:briefly` - Build production extension
+
+From this package directory:
 - `npm run dev` - Start development server with hot reload
 - `npm run build` - Build production extension
 - `npm run preview` - Preview production build
@@ -107,15 +140,17 @@ src/
 
 ### Transcript Extraction
 
-The extension extracts transcripts directly from YouTube's interface:
+The extension extracts transcripts directly from YouTube's interface using shared utilities from `@briefly/shared`:
 
-1. Content script programmatically clicks the "Show transcript" button
+1. Content script (using `@briefly/shared/transcriptDom`) programmatically clicks the "Show transcript" button
 2. Waits for the transcript panel to load
 3. Extracts transcript segments from the DOM (`ytd-transcript-segment-renderer` elements)
 4. Parses timestamps and text from each segment
-5. Returns timestamped text entries
+5. Returns timestamped text entries via Chrome message passing (`@briefly/shared/messaging`)
 
 This approach is more reliable than API methods because it uses the same transcript data YouTube displays to users.
+
+The transcript extraction logic is shared across all extensions in this monorepo via the `@briefly/shared` package.
 
 ### AI Summarization
 
@@ -163,7 +198,8 @@ The content script enables timestamp navigation and transcript extraction:
 
 ### Extension not loading
 
-- Ensure you've built the extension (`npm run build`)
+- Ensure you've built the extension (`npm run build:briefly` from repo root)
+- Make sure you're loading the correct dist folder: `packages/briefly-extension/dist`
 - Check that Developer Mode is enabled in Chrome
 - Try removing and re-loading the extension
 

@@ -6,10 +6,25 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Briefly** is a Chrome extension (Manifest V3) that generates AI-powered summaries of YouTube videos by extracting transcripts and processing them with OpenAI's GPT models. This codebase was reverse-engineered from minified production code and rebuilt with modern TypeScript, React 19, and Vite 7.
 
+**Important**: This extension is part of a monorepo and uses shared utilities from `@briefly/shared` for transcript extraction.
+
 ## Build Commands
 
+### From Repository Root (Recommended)
 ```bash
-# Install dependencies
+# Install dependencies for all workspace packages
+npm install
+
+# Development build with hot reload
+npm run dev:briefly
+
+# Production build (outputs to packages/briefly-extension/dist/)
+npm run build:briefly
+```
+
+### From This Package Directory
+```bash
+# Install dependencies (run from repo root first!)
 npm install
 
 # Development build with hot reload
@@ -25,7 +40,7 @@ npm run preview
 **After building**, load the extension in Chrome:
 1. Navigate to `chrome://extensions/`
 2. Enable "Developer mode"
-3. Click "Load unpacked" and select the `dist/` folder
+3. Click "Load unpacked" and select the `packages/briefly-extension/dist/` folder from repository root
 4. After code changes, click the reload icon on the extension card
 
 ## Architecture
@@ -80,9 +95,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 1. **User clicks "Summarize This Video"** in popup
 2. **Popup** extracts video ID from active tab URL
 3. **Popup → Background**: popup sends `START_SUMMARY` with `{ videoId, videoTitle, tabId, openaiApiKey, comfortableLanguages }`.
-4. **YouTube Transcript Extraction** (`src/utils/youtube.ts` + `src/content/transcriptDom.ts`):
+4. **YouTube Transcript Extraction** (`@briefly/shared/messaging` + `@briefly/shared/transcriptDom`):
    - Sends `GET_TRANSCRIPT_DATA` message to content script
-   - Content script clicks "Show transcript" button on YouTube
+   - Content script clicks "Show transcript" button on YouTube using shared DOM extraction utilities
    - Waits for transcript panel to load
    - Extracts transcript segments from DOM (`ytd-transcript-segment-renderer` elements)
    - Parses timestamps (MM:SS or H:MM:SS format) and text
@@ -117,11 +132,11 @@ No external state library - popup state is in `App.tsx` using React hooks:
 
 ### YouTube Transcript Extraction
 
-**Critical**: The extension extracts transcripts by interacting with YouTube's native transcript UI:
+**Critical**: The extension extracts transcripts by interacting with YouTube's native transcript UI using shared utilities from `@briefly/shared`:
 
-1. Background worker calls `getYouTubeTranscript(videoId)` in `src/utils/youtube.ts`.
+1. Background worker calls `getYouTubeTranscript(videoId)` from `@briefly/shared/messaging`.
 2. That helper sends `GET_TRANSCRIPT_DATA` to the content script.
-3. Content script uses `src/content/transcriptDom.ts` to search for transcript entry points using DOM selectors:
+3. Content script uses `@briefly/shared/transcriptDom` to search for transcript entry points using DOM selectors:
    - `button[aria-label*="transcript" i]` or `button[aria-label*="Show transcript" i]`
    - If not found directly, looks in the "More actions" menu
 4. Clicks the transcript button (or menu item) programmatically
@@ -143,9 +158,10 @@ No external state library - popup state is in `App.tsx` using React hooks:
 - Transcript button and menu item: Check aria-label attributes and menu items
 - Transcript segments: Look for transcript-related element tags
 - Time/text elements: Inspect class names in transcript panel
-- All selectors live in `src/content/transcriptDom.ts`; update them there first.
+- All selectors live in `packages/shared/src/transcriptDom.ts`; update them there first.
+- **Note**: Since transcript extraction is shared across extensions, changes will affect all extensions in the monorepo.
 
-Error codes for transcript failures are defined in `src/utils/errors.ts` (`TranscriptErrorCode`) and are surfaced to the popup via `isTranscriptError` / `parseError`. When selectors break, prefer throwing specific codes like:
+Error codes for transcript failures are defined in `@briefly/shared/errors` (`TranscriptErrorCode`) and are surfaced to the popup via `isTranscriptError` / `parseError`. When selectors break, prefer throwing specific codes like:
 - `UI_NOT_FOUND` when the transcript UI can’t be located
 - `MENU_ITEM_NOT_FOUND` when the transcript option is missing from the menu
 - `SEGMENTS_NOT_FOUND` when the panel opens but no segments are present
@@ -208,14 +224,20 @@ The `base: './'` is essential - without it, CSS/JS paths will be `/assets/...` w
 
 ## File Organization
 
+### Extension-Specific Files
 - **`src/popup/App.tsx`**: Popup UI orchestrator, settings + summary viewer, talks to background worker
 - **`src/popup/components/`**: Presentational components (SettingsModal, SummaryView)
-- **`src/utils/youtube.ts`**: YouTube transcript extraction helper (sends `GET_TRANSCRIPT_DATA` to content script)
 - **`src/utils/openai.ts`**: OpenAI Chat Completions API integration
-- **`src/content/index.ts`**: DOM manipulation (transcript extraction via `transcriptDom`, video seeking, playback control)
-- **`src/content/transcriptDom.ts`**: Centralized selectors and timing logic for the transcript panel
+- **`src/utils/languages.ts`**: Supported language list
+- **`src/content/index.ts`**: DOM manipulation (video seeking, playback control), uses shared transcript extraction
 - **`src/background/index.ts`**: Background orchestrator (summaries, badges, notifications, storage)
 - **`public/icons/`**: Extension icons (copied to dist/ by @crxjs)
+
+### Shared Utilities (from `@briefly/shared`)
+- **`@briefly/shared/transcriptDom`**: YouTube DOM selectors and extraction logic
+- **`@briefly/shared/messaging`** (formerly `youtube.ts`): Chrome message passing for transcripts
+- **`@briefly/shared/errors`**: TranscriptError types and error handling
+- **`@briefly/shared/types`**: Shared TypeScript interfaces (TranscriptEntry, VideoChapter, etc.)
 
 ## External Dependencies
 
@@ -232,7 +254,14 @@ The transcript extraction was completely rewritten to use DOM extraction instead
 - **New approach**: Content script clicks transcript button and extracts from DOM
 - **Result**: More reliable, no API dependencies, works as long as transcript UI exists
 
-Timedtext / Innertube-based approaches are now kept only as historical context; the production path is **DOM transcript panel first** via `src/content/transcriptDom.ts` and `GET_TRANSCRIPT_DATA`.
+Timedtext / Innertube-based approaches are now kept only as historical context; the production path is **DOM transcript panel first** via `@briefly/shared/transcriptDom` and `GET_TRANSCRIPT_DATA`.
+
+### Monorepo Migration (2025)
+The codebase was migrated to a monorepo structure to support multiple extensions:
+- Transcript extraction utilities moved to `packages/shared/` as `@briefly/shared` package
+- Extensions import shared code via workspace dependencies
+- Git history was rewritten with `git-filter-repo` so all commits reference monorepo paths
+- This enables code reuse for future extensions (e.g., Interruptly for translation)
 
 ### Background-Orchestrated Summarization (2025)
 Summarization was moved from the popup into the background worker to make long-running summaries more robust and to support multiple videos in parallel:
