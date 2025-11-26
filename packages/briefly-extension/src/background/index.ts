@@ -164,7 +164,7 @@ async function generateSummaryInBackground(
     });
 
     // Stage 1: Extract transcript
-    console.log('[Background] Extracting transcript for:', videoId);
+    console.log('[Background] Extracting transcript for:', videoId, 'on tab:', tabId);
     broadcastMessage({
       type: 'SUMMARY_PROGRESS',
       videoId,
@@ -172,7 +172,7 @@ async function generateSummaryInBackground(
       message: 'Extracting transcript...',
     });
 
-    const { transcript, chapters } = await getYouTubeTranscriptWithChapters(videoId);
+    const { transcript, chapters } = await getYouTubeTranscriptWithChapters(videoId, tabId);
 
     if (!transcript || transcript.length === 0) {
       throw new Error('Could not extract transcript from this video');

@@ -5,31 +5,32 @@ import type { TranscriptEntry, VideoChapter, TranscriptWithChapters } from './ty
 export type { TranscriptEntry, VideoChapter, TranscriptWithChapters };
 
 /**
- * Extracts a YouTube transcript for the active tab.
+ * Extracts a YouTube transcript for the specified tab.
  *
  * This is a thin wrapper around the DOM-based transcript panel:
  * - Sends `GET_TRANSCRIPT_DATA` to the content script.
  * - Content script opens the transcript panel and scrapes segments from the DOM.
  * - Errors are returned as structured `TranscriptError` instances where possible.
  */
-export async function getYouTubeTranscript(videoId: string): Promise<TranscriptEntry[]> {
-  const { transcript } = await getYouTubeTranscriptWithChapters(videoId);
+export async function getYouTubeTranscript(videoId: string, tabId: number): Promise<TranscriptEntry[]> {
+  const { transcript } = await getYouTubeTranscriptWithChapters(videoId, tabId);
   return transcript;
 }
 
 /**
- * Extracts a YouTube transcript and any available chapters for the active tab.
+ * Extracts a YouTube transcript and any available chapters for the specified tab.
  *
  * Returns both transcript entries and a best-effort list of chapters.
  */
 export async function getYouTubeTranscriptWithChapters(
-  videoId: string
+  videoId: string,
+  tabId: number
 ): Promise<TranscriptWithChapters> {
-  console.log('[YouTube] getYouTubeTranscriptWithChapters called with videoId:', videoId);
+  console.log('[YouTube] getYouTubeTranscriptWithChapters called with videoId:', videoId, 'tabId:', tabId);
 
   try {
     // DOM-based transcript and chapter extraction via content script
-    const result = await fetchTranscriptAndChapters(videoId);
+    const result = await fetchTranscriptAndChapters(videoId, tabId);
     console.log(
       '[YouTube] DOM transcript fetch returned:',
       result?.transcript?.length,
@@ -61,23 +62,16 @@ export async function getYouTubeTranscriptWithChapters(
  * `TranscriptErrorCode` (e.g. `UI_NOT_FOUND`, `MENU_ITEM_NOT_FOUND`,
  * `SEGMENTS_NOT_FOUND`, `PAGE_NOT_READY`).
  */
-async function fetchTranscriptAndChapters(videoId: string): Promise<TranscriptWithChapters> {
+async function fetchTranscriptAndChapters(videoId: string, tabId: number): Promise<TranscriptWithChapters> {
   try {
-    console.log('[Transcript] Starting DOM-based transcript and chapter fetch for video:', videoId);
-
-    // Get the active tab
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-
-    if (!tab.id) {
-      throw new Error('No active tab found');
-    }
+    console.log('[Transcript] Starting DOM-based transcript and chapter fetch for video:', videoId, 'on tab:', tabId);
 
     console.log('[Transcript] Sending GET_TRANSCRIPT_DATA message to content script');
 
     // Ask content script to open the transcript panel and extract segments + chapters
     return new Promise((resolve, reject) => {
       chrome.tabs.sendMessage(
-        tab.id!,
+        tabId,
         { type: 'GET_TRANSCRIPT_DATA', videoId },
         (response) => {
           if (chrome.runtime.lastError) {
